@@ -5,9 +5,8 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Point;
 import java.awt.Rectangle;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
@@ -41,259 +40,266 @@ import org.apache.batik.transcoder.TranscoderInput;
 import org.apache.batik.transcoder.TranscoderOutput;
 import org.apache.batik.transcoder.image.PNGTranscoder;
 
-public class SvgTileViewerApp {
+public class SvgTileViewerApp10 {
 
-	private boolean isLoadingFolder = false;
-	private File currentFolder;
-	private SVGDataManager dataManager = new SVGDataManager();
-
-	private JSVGCanvas svgCanvas;
 	private JFrame frame;
 	private JPanel tilePanel;
+	private JSVGCanvas svgCanvas;
+	private File currentFolder;
+	private Map<String, WeakReference<BufferedImage>> imageCache = new HashMap<>();
+	private boolean isLoadingFolder = false;
 	private JPanel selectedPanel;
 	private JPanel rightPanel;
-	private JPanel scenePanel = new JPanel(null);
+	private Map<JCheckBox, File> checkboxFileMap = new HashMap<>();
+	Map<File, JPanel> fileToTileMap = new HashMap<>();
+	LinkedList<LinkedList<String>> svgs = new LinkedList<>();
+	private final Map<String, CustomImageTile> tiles = new HashMap<>();
+	private final java.util.List<File> selectedFiles = new java.util.ArrayList<>();
+	SVGDataManager dataManager = new SVGDataManager();
 	private JScrollPane tileScrollPane;
 	private JScrollPane selectedScrollPane;
-	private JScrollPane centerScrollPane;
-
-	private Map<String, WeakReference<BufferedImage>> imageCache = new HashMap<>();
-	private Map<JCheckBox, File> checkboxFileMap = new HashMap<>();
-	private Map<File, JPanel> fileToTileMap = new HashMap<>();
+	private LinkedList<LinkedList<String>> svgData;
 	private Map<File, JCheckBox> fileCheckboxMap = new HashMap<>();
-	private Map<File, JPanel> selectedFilePanels = new HashMap<>();
-	private final Map<String, CustomImageTile> tiles = new HashMap<>();
 
-	private LinkedList<LinkedList<String>> svgData = new LinkedList<>();
-	private LinkedList<LinkedList<String>> svgs = new LinkedList<>();
-	private final java.util.List<File> selectedFiles = new java.util.ArrayList<>();
+	private Map<File, JPanel> selectedFilePanels = new HashMap<>();
+
+	private JScrollPane centerScrollPane;
+	JPanel scenePanel = new JPanel(null);
 
 	public static void main(String[] args) {
-		SwingUtilities.invokeLater(() -> new SvgTileViewerApp().createAndShowUI());
+		SwingUtilities.invokeLater(() -> new SvgTileViewerApp10().createAndShowUI());
 	}
 
 	private void createAndShowUI() {
-		currentFolder = LastUsedDirectory.load();
-		if (currentFolder == null || !currentFolder.isDirectory())
-			currentFolder = new File(System.getProperty("user.home"));
+	    currentFolder = LastUsedDirectory.load();
+	    if (currentFolder == null || !currentFolder.isDirectory())
+	        currentFolder = new File(System.getProperty("user.home"));
 
-		frame = new JFrame("SVG Tile Viewer");
-		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-		frame.setSize(1000, 700);
-		frame.setLayout(new BorderLayout());
+	    frame = new JFrame("SVG Tile Viewer");
+	    frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+	    frame.setSize(1000, 700);
+	    frame.setLayout(new BorderLayout());
 
-		JButton chooseFolderBtn = new JButton("Verzeichnis auswählen");
-		chooseFolderBtn.addActionListener(e -> chooseFolder());
-		frame.add(chooseFolderBtn, BorderLayout.NORTH);
+	    JButton chooseFolderBtn = new JButton("Verzeichnis auswählen");
+	    chooseFolderBtn.addActionListener(e -> chooseFolder());
+	    frame.add(chooseFolderBtn, BorderLayout.NORTH);
 
-		// Linkes Panel
-		tilePanel = new JPanel();
-		tilePanel.setLayout(new BoxLayout(tilePanel, BoxLayout.Y_AXIS));
-		tilePanel.setBackground(Color.WHITE);
-		tileScrollPane = new JScrollPane(tilePanel);
-		tileScrollPane.setPreferredSize(new Dimension(300, 0));
-		tileScrollPane.getVerticalScrollBar().setUnitIncrement(16);
-		frame.add(tileScrollPane, BorderLayout.WEST);
+	    // Linkes Panel
+	    tilePanel = new JPanel();
+	    tilePanel.setLayout(new BoxLayout(tilePanel, BoxLayout.Y_AXIS));
+	    tilePanel.setBackground(Color.WHITE);
+	    tileScrollPane = new JScrollPane(tilePanel);
+	    tileScrollPane.setPreferredSize(new Dimension(300, 0));
+	    tileScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+	    frame.add(tileScrollPane, BorderLayout.WEST);
 
-		// Zentrales Panel für CustomImageTiles
-		scenePanel = new JPanel(null); // Null-Layout für freie Positionierung der Tiles
-		scenePanel.setPreferredSize(new Dimension(2000, 2000));
-		scenePanel.setBackground(Color.WHITE); // Optional
-		scenePanel.setFocusable(true);
-		scenePanel.addKeyListener(new KeyAdapter() {
-			@Override
-			public void keyPressed(KeyEvent e) {
-				if (e.getKeyCode() == KeyEvent.VK_A && e.isControlDown()) {
-					for (CustomImageTile tile : tiles.values()) {
-						tile.setSelected(true);
-					}
-					System.out.println("Select All");
-					scenePanel.repaint();
-				}
-				if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-					for (CustomImageTile tile : tiles.values()) {
-						tile.setSelected(false);
-					}
-					System.out.println("Select None");
-					scenePanel.repaint();
-				}
-			}
-		});
+	    // Zentrales Panel für CustomImageTiles
+	     scenePanel = new JPanel(null); // Null-Layout für freie Positionierung der Tiles
+	     scenePanel.setPreferredSize(new Dimension(2000, 2000));
+	     scenePanel.setBackground(Color.LIGHT_GRAY); // Optional
+//	    svgPanel.setPreferredSize(new Dimension(2000, 2000));
+	    centerScrollPane = new JScrollPane(scenePanel);
+	    centerScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+	    centerScrollPane.getHorizontalScrollBar().setUnitIncrement(16);
+	    frame.add(centerScrollPane, BorderLayout.CENTER);
 
-		centerScrollPane = new JScrollPane(scenePanel);
-		centerScrollPane.getVerticalScrollBar().setUnitIncrement(16);
-		centerScrollPane.getHorizontalScrollBar().setUnitIncrement(16);
-		
-		
-		
-		
-		frame.add(centerScrollPane, BorderLayout.CENTER);
+	    // Rechtes Panel
+	    selectedPanel = new JPanel();
+	    selectedPanel.setLayout(new BoxLayout(selectedPanel, BoxLayout.Y_AXIS));
+	    selectedPanel.setBackground(Color.WHITE);
+	    selectedPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+	    selectedScrollPane = new JScrollPane(selectedPanel);
+	    selectedScrollPane.setPreferredSize(new Dimension(300, 0));
+	    selectedScrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
-		// Rechtes Panel
-		selectedPanel = new JPanel();
-		selectedPanel.setLayout(new BoxLayout(selectedPanel, BoxLayout.Y_AXIS));
-		selectedPanel.setBackground(Color.WHITE);
-		selectedPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-		selectedScrollPane = new JScrollPane(selectedPanel);
-		selectedScrollPane.setPreferredSize(new Dimension(300, 0));
-		selectedScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+	    rightPanel = new JPanel(new BorderLayout());
+	    rightPanel.add(selectedScrollPane, BorderLayout.CENTER);
+	    rightPanel.setBackground(Color.WHITE);
+	    rightPanel.setBorder(BorderFactory.createLineBorder(Color.GRAY));
+	    frame.add(rightPanel, BorderLayout.EAST);
 
-		rightPanel = new JPanel(new BorderLayout());
-		rightPanel.add(selectedScrollPane, BorderLayout.CENTER);
-		rightPanel.setBackground(Color.WHITE);
-		rightPanel.setBorder(BorderFactory.createLineBorder(Color.GRAY));
-		frame.add(rightPanel, BorderLayout.EAST);
+	    // Dragging rechts
+	    MouseAdapter dragListener = new MouseAdapter() {
+	        Point origin;
 
-		// Toggle Buttons
-		JButton toggleLeft = new JButton("⮜");
-		toggleLeft.addActionListener(e -> {
-			tileScrollPane.setVisible(!tileScrollPane.isVisible());
-			toggleLeft.setText(tileScrollPane.isVisible() ? "⮜" : "⮞");
-		});
-		JButton toggleRight = new JButton("⮞");
-		toggleRight.addActionListener(e -> {
-			rightPanel.setVisible(!rightPanel.isVisible());
-			toggleRight.setText(rightPanel.isVisible() ? "⮞" : "⮜");
-		});
-		JPanel togglePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-		togglePanel.add(toggleLeft);
-		togglePanel.add(toggleRight);
-		frame.add(togglePanel, BorderLayout.SOUTH);
+	        public void mousePressed(MouseEvent e) {
+	            origin = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), frame.getContentPane());
+	        }
 
-		loadFolderFiles(currentFolder);
+	        public void mouseDragged(MouseEvent e) {
+	            Point pt = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), frame.getContentPane());
+	            int dx = pt.x - origin.x, dy = pt.y - origin.y;
+	            Point loc = rightPanel.getLocation();
+	            rightPanel.setLocation(loc.x + dx, loc.y + dy);
+	            origin = pt;
+	            frame.repaint();
+	        }
+	    };
+	    rightPanel.addMouseListener(dragListener);
+	    rightPanel.addMouseMotionListener(dragListener);
 
-		frame.setLocationRelativeTo(null);
-		frame.setVisible(true);
+	    // Toggle Buttons
+	    JButton toggleLeft = new JButton("⮜");
+	    toggleLeft.addActionListener(e -> {
+	        tileScrollPane.setVisible(!tileScrollPane.isVisible());
+	        toggleLeft.setText(tileScrollPane.isVisible() ? "⮜" : "⮞");
+	    });
+	    JButton toggleRight = new JButton("⮞");
+	    toggleRight.addActionListener(e -> {
+	        rightPanel.setVisible(!rightPanel.isVisible());
+	        toggleRight.setText(rightPanel.isVisible() ? "⮞" : "⮜");
+	    });
+	    JPanel togglePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+	    togglePanel.add(toggleLeft);
+	    togglePanel.add(toggleRight);
+	    frame.add(togglePanel, BorderLayout.SOUTH);
 
-		startMemoryCleanupTimer();
+	    loadFolderFiles(currentFolder);
+
+	    frame.setLocationRelativeTo(null);
+	    frame.setVisible(true);
+
+	    startMemoryCleanupTimer();
 	}
 
-	private void loadFolderFiles(File folder) {
-		SwingUtilities.invokeLater(() -> {
-			tilePanel.removeAll();
-			selectedPanel.removeAll();
-			fileToTileMap.clear();
-			selectedFilePanels.clear();
-			fileCheckboxMap.clear();
+		private void loadFolderFiles(File folder) {
+		    SwingUtilities.invokeLater(() -> {
+		        tilePanel.removeAll();
+		        selectedPanel.removeAll();
+		        fileToTileMap.clear();
+		        selectedFilePanels.clear();
+		        fileCheckboxMap.clear();
 
-			// SVG-Daten laden oder erstellen
-			SVGDataManager dataManager = new SVGDataManager();
-			svgData = dataManager.getSVGData(folder);
-			svgs.clear();
-			svgs.addAll(svgData);
-			tiles.clear();
+		        // SVG-Daten laden oder erstellen
+		        SVGDataManager dataManager = new SVGDataManager();
+		         svgData = dataManager.getSVGData(folder);
+		        svgs.clear();
+		        svgs.addAll(svgData);
+		        tiles.clear();
 
-			// Alle SVG-Dateien prüfen
-			File[] files = folder.listFiles(f -> f.isFile() && f.getName().toLowerCase().endsWith(".svg"));
-			if (files == null || files.length == 0) {
-				JOptionPane.showMessageDialog(frame, "Keine SVG-Dateien gefunden.");
-				svgCanvas.setURI(null);
-				return;
-			}
-			Arrays.sort(files);
+		        // Alle SVG-Dateien prüfen
+		        File[] files = folder.listFiles(f -> f.isFile() && f.getName().toLowerCase().endsWith(".svg"));
+		        if (files == null || files.length == 0) {
+		            JOptionPane.showMessageDialog(frame, "Keine SVG-Dateien gefunden.");
+		            svgCanvas.setURI(null);
+		            return;
+		        }
 
-			// Tiles erzeugen und in Panel einfügen
+		        Arrays.sort(files);
 
-			for (LinkedList<String> data : svgData) {
-				CustomImageTile tile = new CustomImageTile(data, folder);
-				tiles.put(tile.getFilename(), tile); // statt tiles.add(...)
-			}
+		        // Tiles erzeugen und in Panel einfügen
 
-			// Linke Dateiliste mit Checkboxen
-			for (File file : files) {
-				JPanel leftRow = createThumbnailRow(file, true, true);
-				tilePanel.add(leftRow);
-				fileToTileMap.put(file, leftRow);
+		 
 
-				JCheckBox cb = findCheckboxInPanel(leftRow);
-				if (cb != null) {
-					fileCheckboxMap.put(file, cb);
-					cb.addActionListener(e -> {
-						if (cb.isSelected()) {
-							addFileToSelectedPanel(file);
-							// Add here the code that sets the CustomImageTile visible
-							setTileVisible(file, true);
-							addSVGThatYouClickedOn(file, "Clicked CheckBox");
-						} else {
-							removeFileFromSelectedPanel(file);
-							setTileVisible(file, false);
-						}
+		        for (LinkedList<String> data : svgData) {
+		            CustomImageTile tile = new CustomImageTile(data, folder);
+		    
+		            tiles.put(tile.getFilename(), tile);  // statt tiles.add(...)
+		        }
 
-					});
-				}
-			}
 
-			tilePanel.revalidate();
-			tilePanel.repaint();
-			selectedPanel.revalidate();
-			selectedPanel.repaint();
-		});
-	}
+		        // Linke Dateiliste mit Checkboxen
+		        for (File file : files) {
+		            JPanel leftRow = createThumbnailRow(file, true, true);
+		            tilePanel.add(leftRow);
+		            fileToTileMap.put(file, leftRow);
 
-	private JPanel createThumbnailRow(File file, boolean withCheckbox, boolean withName) {
-		JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+		            JCheckBox cb = findCheckboxInPanel(leftRow);
+		            if (cb != null) {
+		                fileCheckboxMap.put(file, cb);
+		                cb.addActionListener(e -> {
+		                    if (cb.isSelected()) {
+		                        addFileToSelectedPanel(file);
+		                    	// Add here the code that sets the CustomImageTile visible
+		                    setTileVisible(file, true);
+		                    }
+		                    else {
+		                    	  removeFileFromSelectedPanel(file);
+		                    	  setTileVisible(file, false);
+		                    }
+		                      
+		                });
+		            }
+		        }
 
-		JLabel thumb = new JLabel();
-		thumb.setPreferredSize(new Dimension(50, 50));
-		thumb.setOpaque(true);
-		thumb.setBackground(Color.WHITE);
-		row.add(thumb);
-
-		// Thumbnail laden
-		new Thread(() -> {
-			BufferedImage img = getSvgThumbnail(file);
-			if (img != null)
-				SwingUtilities.invokeLater(() -> thumb.setIcon(new ImageIcon(img)));
-		}).start();
-
-		thumb.addMouseListener(new MouseAdapter() {
-			public void mouseClicked(MouseEvent e) {
-				addSVGThatYouClickedOn(file, "Clicked tumb");
-			}
-		});
-
-		if (withCheckbox) {
-			JCheckBox cb = new JCheckBox();
-			cb.setOpaque(false);
-			row.add(cb);
+		        tilePanel.revalidate();
+		        tilePanel.repaint();
+		        selectedPanel.revalidate();
+		        selectedPanel.repaint();
+		    });
 		}
-		if (withName) {
-			JLabel nameLabel = new JLabel(file.getName());
-			nameLabel.setForeground(Color.BLUE);
-			nameLabel.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-			nameLabel.addMouseListener(new MouseAdapter() {
+
+
+		
+		
+
+		private JPanel createThumbnailRow(File file, boolean withCheckbox, boolean withName) {
+			JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+			row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+
+			JLabel thumb = new JLabel();
+			thumb.setPreferredSize(new Dimension(50, 50));
+			thumb.setOpaque(true);
+			thumb.setBackground(Color.WHITE);
+			row.add(thumb);
+
+			// Thumbnail laden
+			new Thread(() -> {
+				BufferedImage img = getSvgThumbnail(file);
+				if (img != null)
+					SwingUtilities.invokeLater(() -> thumb.setIcon(new ImageIcon(img)));
+			}).start();
+
+			thumb.addMouseListener(new MouseAdapter() {
 				public void mouseClicked(MouseEvent e) {
-					String newName = JOptionPane.showInputDialog(frame, "Neuer Dateiname:", file.getName());
-					if (newName != null && !newName.trim().isEmpty()) {
-						if (!newName.toLowerCase().endsWith(".svg"))
-							newName += ".svg";
-						File renamed = new File(file.getParent(), newName);
-						if (renamed.exists()) {
-							JOptionPane.showMessageDialog(frame, "Datei existiert bereits.");
-							return;
-						}
-						if (file.renameTo(renamed)) {
-							nameLabel.setText(newName);
-							imageCache.remove(file.getAbsolutePath());
-							loadFolderFiles(currentFolder); // Refresh alle
-						} else
-							JOptionPane.showMessageDialog(frame, "Umbenennen fehlgeschlagen.");
-					}
+					addSVGThatYouClickedOn( file,  "Clicked tumb");
+					
 				}
 			});
-			row.add(nameLabel);
+
+			if (withCheckbox) {
+				JCheckBox cb = new JCheckBox();
+				cb.setOpaque(false);
+				row.add(cb);
+			}
+			if (withName) {
+				JLabel nameLabel = new JLabel(file.getName());
+				nameLabel.setForeground(Color.BLUE);
+				nameLabel.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+				nameLabel.addMouseListener(new MouseAdapter() {
+					public void mouseClicked(MouseEvent e) {
+						String newName = JOptionPane.showInputDialog(frame, "Neuer Dateiname:", file.getName());
+						if (newName != null && !newName.trim().isEmpty()) {
+							if (!newName.toLowerCase().endsWith(".svg"))
+								newName += ".svg";
+							File renamed = new File(file.getParent(), newName);
+							if (renamed.exists()) {
+								JOptionPane.showMessageDialog(frame, "Datei existiert bereits.");
+								return;
+							}
+							if (file.renameTo(renamed)) {
+								nameLabel.setText(newName);
+								imageCache.remove(file.getAbsolutePath());
+								loadFolderFiles(currentFolder); // Refresh alle
+							} else
+								JOptionPane.showMessageDialog(frame, "Umbenennen fehlgeschlagen.");
+						}
+					}
+				});
+				row.add(nameLabel);
+			}
+
+			return row;
+		}
+		
+
+		private void setTileVisible(File file, boolean visible) {
+		    CustomImageTile tile = tiles.get(file.getName());
+		    if (tile != null) tile.getPanel().setVisible(visible);
 		}
 
-		return row;
-	}
 
-	private void setTileVisible(File file, boolean visible) {
-		CustomImageTile tile = tiles.get(file.getName());
-		if (tile != null)
-			tile.getPanel().setVisible(visible);
-	}
-
+	
 	private void addSVGThatYouClickedOn(File file, String id) {
 		CustomImageTile tile = tiles.get(file.getName());
 		if (tile != null) {
@@ -306,6 +312,8 @@ public class SvgTileViewerApp {
 			System.out.println(id);
 		}
 	}
+
+
 
 	private JCheckBox findCheckboxInPanel(JPanel p) {
 		for (Component c : p.getComponents())
@@ -485,7 +493,7 @@ public class SvgTileViewerApp {
 		checkBox.addActionListener(e -> {
 			if (checkBox.isSelected()) {
 				selectedFiles.add(svgFile);
-				addSVGThatYouClickedOn(svgFile, "Clicked checkBox");
+				addSVGThatYouClickedOn( svgFile,  "Clicked checkBox");
 			} else {
 				selectedFiles.remove(svgFile);
 			}

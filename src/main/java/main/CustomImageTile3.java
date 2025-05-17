@@ -14,7 +14,7 @@ import javax.swing.JPanel;
 
 import org.apache.batik.swing.JSVGCanvas;
 
-public class CustomImageTile {
+public class CustomImageTile3 {
 	private static final int IDX_FILENAME = 0;
 	private static final int IDX_INDEX = 1;
 	private static final int IDX_HEIGHT = 2;
@@ -31,7 +31,7 @@ public class CustomImageTile {
 	private Point dragOffset;
 	private boolean enableDrag = true;
 
-	public CustomImageTile(LinkedList<String> data, File svgFolder) {
+	public CustomImageTile3(LinkedList<String> data, File svgFolder) {
 		this.data = data;
 		panel = new JPanel(null);
 		svgCanvas = new JSVGCanvas();
@@ -65,7 +65,7 @@ public class CustomImageTile {
 		svgCanvas.addMouseListener(new MouseAdapter() {
 			public void mousePressed(MouseEvent e) {
 				dragOffset.setLocation(e.getPoint());
-//				System.out.println("CustomImageTile Drag x: " + e.getX() + " y: " + e.getY());
+				System.out.println("CustomImageTile Drag x: " + e.getX() + " y: " + e.getY());
 			}
 
 			@Override
@@ -75,14 +75,13 @@ public class CustomImageTile {
 
 			@Override
 			public void mouseExited(MouseEvent e) {
-				if(!selected)
 				panel.setBorder(null);
 			}
 		});
 		svgCanvas.addMouseMotionListener(new MouseMotionAdapter() {
 			public void mouseDragged(MouseEvent e) {
 				if (enableDrag) {
-//					System.out.println("CustomImageTile Drag x: " + e.getX() + " y: " + e.getY());
+					System.out.println("CustomImageTile Drag x: " + e.getX() + " y: " + e.getY());
 					int nx = panel.getX() + e.getX() - dragOffset.x;
 					int ny = panel.getY() + e.getY() - dragOffset.y;
 					panel.setLocation(nx, ny);
@@ -132,11 +131,6 @@ public class CustomImageTile {
 
 	private void toggleSelected() {
 		selected = !selected;
-		if(selected) {
-			svgCanvas.setBackground(new Color(0, 1, 0, 0.3f)); // vollständig transparent
-		} else {
-			svgCanvas.setBackground(new Color(0, 0, 0, 0)); // vollständig transparent
-		}
 		panel.setBorder(selected ? BorderFactory.createLineBorder(Color.RED, 2) : null);
 	}
 
