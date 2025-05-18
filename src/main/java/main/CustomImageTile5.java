@@ -6,17 +6,18 @@ import java.awt.Point;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
-import java.awt.geom.AffineTransform;
 import java.io.File;
 import java.util.LinkedList;
 
 import javax.swing.BorderFactory;
 import javax.swing.JPanel;
-import javax.swing.OverlayLayout;
 
 import org.apache.batik.swing.JSVGCanvas;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.svg.SVGDocument;
 
-public class CustomImageTile {
+public class CustomImageTile5 {
 	private static final int IDX_FILENAME = 0;
 	private static final int IDX_INDEX = 1;
 	private static final int IDX_HEIGHT = 2;
@@ -33,19 +34,16 @@ public class CustomImageTile {
 	private Point dragOffset;
 	private boolean enableDrag = true;
 	private TileUpdateListener updateListener;
-	private double rotation = 0;
 
-	public CustomImageTile(LinkedList<String> data, File svgFolder) {
+	public CustomImageTile5(LinkedList<String> data, File svgFolder) {
 		this.data = data;
 		panel = new JPanel(null);
 		svgCanvas = new JSVGCanvas();
-		svgCanvas.setDocumentState(JSVGCanvas.ALWAYS_DYNAMIC);
-
 		initView(svgFolder);
 		enableDrag();
 		enableResize();
 		enableSelection();
-
+//		enableRotate();
 	}
 
 	private void initView(File svgFolder) {
@@ -58,18 +56,12 @@ public class CustomImageTile {
 		panel.setBounds(x, y, w, h);
 		panel.setOpaque(false); // Setzen Sie das Panel als transparent
 		panel.setBorder(null); // Entfernen Sie den Rand, falls nicht benötigt
-		panel.setLayout(null);
-		
-		
+
 		svgCanvas.setOpaque(false);
 		svgCanvas.setBackground(new Color(0, 0, 0, 0)); // vollständig transparent
 
 		svgCanvas.setURI(new File(svgFolder, fileName).toURI().toString());
-//		svgCanvas.setBounds(0, 0, w, h);
-		svgCanvas.setLocation(0, 0);
-		svgCanvas.setSize(w, h);
-//		svgCanvas.setMySizeToSVGContent(true); // Eigene Methode bauen, siehe unten
-
+		svgCanvas.setBounds(0, 0, w, h);
 		panel.add(svgCanvas);
 	}
 
@@ -90,35 +82,22 @@ public class CustomImageTile {
 			
 			@Override
 			public void mouseEntered(MouseEvent e) {
-				if(!e.isAltDown()) {
-					panel.setBorder(BorderFactory.createLineBorder(Color.RED, 2)); // oder andere Farbe/Stärke
-				} else {
-					panel.setBorder(BorderFactory.createLineBorder(Color.RED, 2)); // oder andere Farbe/Stärke
-					svgCanvas.setBorder(BorderFactory.createLineBorder(Color.BLUE, 2)); // oder andere Farbe/Stärke
-				}
-
+				panel.setBorder(BorderFactory.createLineBorder(Color.RED, 2)); // oder andere Farbe/Stärke
 			}
 
 			@Override
 			public void mouseExited(MouseEvent e) {
 				if(!selected)
 				panel.setBorder(null);
-				svgCanvas.setBorder(null);
 			}
 		});
 		svgCanvas.addMouseMotionListener(new MouseMotionAdapter() {
 			public void mouseDragged(MouseEvent e) {
-				if (enableDrag && !e.isAltDown()) {
+				if (enableDrag) {
 //					System.out.println("CustomImageTile Drag x: " + e.getX() + " y: " + e.getY());
 					int nx = panel.getX() + e.getX() - dragOffset.x;
 					int ny = panel.getY() + e.getY() - dragOffset.y;
 					panel.setLocation(nx, ny);
-					updateData();
-				} else 	if (enableDrag && e.isAltDown()) {
-//					System.out.println("CustomImageTile Drag x: " + e.getX() + " y: " + e.getY());
-					int nx = svgCanvas.getX() + e.getX() - dragOffset.x;
-					int ny = svgCanvas.getY() + e.getY() - dragOffset.y;
-					svgCanvas.setLocation(nx, ny);
 					updateData();
 				}
 			}
@@ -129,17 +108,12 @@ public class CustomImageTile {
 	        if (!enableDrag || e.isControlDown()) { // Nur zoomen, wenn kein Drag aktiv oder Strg gedrückt
 	            double scaleFactor = e.getWheelRotation() < 0 ? 1.1 : 0.9; // Hoch = Vergrößern, Runter = Verkleinern
 	            scaleSVG(scaleFactor);
-	            updateData();
 	            e.consume(); // Verhindert Scrollen des Eltern-Panels
-	        } else  if (!enableDrag || e.isAltDown()) {
-	            int direction = e.getWheelRotation(); // -1 = hoch, +1 = runter
-	            rotation += direction * 5; // z.B. 5° pro Schritt
-	            System.out.println("Rotate: " + rotation + "°");
-	            rotateSVG(rotation);
-	            updateData();
-	            e.consume();
+	        } else  if (!enableDrag || e.isAltDown()) { // Nur zoomen, wenn kein Drag aktiv oder Strg gedrückt
+	            double scaleFactor = e.getWheelRotation() < 0 ? 1.1 : 0.9; // Hoch = Vergrößern, Runter = Verkleinern
+	            rotate(10*scaleFactor); // 45 Grad rotieren
+	            e.consume(); // Verhindert Scrollen des Eltern-Panels
 	        }
-
 	    });
 	}
 
@@ -181,36 +155,39 @@ public class CustomImageTile {
 		});
 	}
 	
+//	public void enableRotate() {
+//		svgCanvas.addMouseListener(new MouseAdapter() {
+//		    @Override
+//		    public void mouseClicked(MouseEvent e) {
+//		        if (e.isAltDown()) { // Alt + Klick für Rotation
+//		            rotate(45); // 45 Grad rotieren
+//		        }
+//		    }
+//		});
+//	}
+	
+	public void rotate(double degrees) {
+	    rotateSVG(degrees); // Oder setRotation(degrees), je nach gewünschter Methode
+	    updateData(); // Daten aktualisieren
+	}
+
 	// Methode zum Rotieren der SVG
-public void rotateSVG(double degrees) {
-    // Speichere die Rotation
-    this.rotation = degrees;
-    
-    // AffineTransform für die Rotation erstellen
-    AffineTransform at = new AffineTransform();
-    
-    // Mittelpunkt des Panels für die Rotation berechnen
-    double centerX = panel.getWidth() / 2.0;
-    double centerY = panel.getHeight() / 2.0;
-    
-    // Transformation aufbauen:
-    // 1. Zum Ursprung verschieben (Mittelpunkt des Panels)
-    // 2. Rotieren
-    // 3. Zurück verschieben
-    at.translate(centerX, centerY);
-    at.rotate(Math.toRadians(degrees));
-    at.translate(-centerX, -centerY);
-    
-    // Transformieren des gesamten Panels
-    panel.setLayout(new OverlayLayout(panel)); // Hilft bei der korrekten Darstellung
-    svgCanvas.setRenderingTransform(at, true);
-    
-    // Panel neu zeichnen
-    panel.revalidate();
-    panel.repaint();
-    
-    updateData();
-}
+	public void rotateSVG(double degrees) {
+	    try {
+	        SVGDocument doc = (SVGDocument) svgCanvas.getSVGDocument();
+	        if (doc == null) return;
+
+	        Element root = doc.getDocumentElement();
+	        String transform = String.format("rotate(%f %f %f)", degrees, panel.getWidth() / 2.0, panel.getHeight() / 2.0);
+	        root.setAttribute("transform", transform);
+
+	        svgCanvas.setSVGDocument(doc); // <-- das ist entscheidend!
+	    } catch (Exception e) {
+	        e.printStackTrace();
+	    }
+	}
+
+	
 	 void scaleSVG(double scaleFactor) {
 	    // Aktuelle Größe des SVG-Canvas
 	    int currentWidth = svgCanvas.getWidth();
@@ -283,35 +260,6 @@ public void rotateSVG(double degrees) {
 		// TODO Auto-generated method stub
 //		data.set(newName);
 	}
-	
-	public void mouseDragged(MouseEvent e) {
-	    if (e.isShiftDown()) {
-	        // Canvas innerhalb des Panels verschieben
-	        int nx = svgCanvas.getX() + e.getX() - dragOffset.x;
-	        int ny = svgCanvas.getY() + e.getY() - dragOffset.y;
-	        svgCanvas.setLocation(nx, ny);
-	        updateData();
-	        return;
-	    }
-
-	    if (e.isAltDown() && e.isControlDown()) {
-	        // Nur Panelgröße ändern, Canvas bleibt wie er ist
-	        int nw = Math.max(10, panel.getWidth() + e.getX() - dragOffset.x);
-	        int nh = Math.max(10, panel.getHeight() + e.getY() - dragOffset.y);
-	        panel.setSize(nw, nh);
-	        updateData();
-	        return;
-	    }
-
-	    if (enableDrag) {
-	        // Normales Dragging
-	        int nx = panel.getX() + e.getX() - dragOffset.x;
-	        int ny = panel.getY() + e.getY() - dragOffset.y;
-	        panel.setLocation(nx, ny);
-	        updateData();
-	    }
-	}
-
 }
 
 
