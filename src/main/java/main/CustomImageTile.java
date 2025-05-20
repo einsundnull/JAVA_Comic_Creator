@@ -9,66 +9,137 @@ import java.awt.event.MouseMotionAdapter;
 import java.awt.geom.AffineTransform;
 import java.io.File;
 import java.util.LinkedList;
+import java.util.UUID;
 
 import javax.swing.BorderFactory;
 import javax.swing.JPanel;
 import javax.swing.OverlayLayout;
 
+import org.apache.batik.anim.dom.SAXSVGDocumentFactory;
 import org.apache.batik.swing.JSVGCanvas;
+import org.apache.batik.swing.svg.SVGDocumentLoaderAdapter;
+import org.apache.batik.swing.svg.SVGDocumentLoaderEvent;
+import org.apache.batik.util.XMLResourceDescriptor;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 
 public class CustomImageTile {
-	private static final int IDX_FILENAME = 0;
-	private static final int IDX_INDEX = 1;
-	private static final int IDX_HEIGHT = 2;
-	private static final int IDX_HEIGHT_PERCENT = 3;
-	private static final int IDX_WIDTH = 4;
-	private static final int IDX_WIDTH_PERCENT = 5;
-	private static final int IDX_POS_X = 6;
-	private static final int IDX_POS_Y = 7;
+	public static File file;
+	public static final int IDX_FILENAME = 0;
+	public static final int IDX_FILEPATH = 1;
+	public static final int IDX_INDEX = 2;
+	public static final int IDX_HEIGHT = 3;
+	public static final int IDX_HEIGHT_PERCENT = 4;
+	public static final int IDX_WIDTH = 5;
+	public static final int IDX_WIDTH_PERCENT = 6;
+	public static final int IDX_POS_X = 7;
+	public static final int IDX_POS_Y = 8;
 
 	private final JPanel panel;
 	private final JSVGCanvas svgCanvas;
 	private final LinkedList<String> data;
+
 	private final int RESIZE_MARGIN = 10;
 	private Point dragOffset;
 	private boolean enableDrag = true;
+	private boolean isMirroredHorizontal = false;
+	private boolean isMirroredVertical = false;
+	private boolean temporarySelected;
+	private boolean selected = false;
 	private TileUpdateListener updateListener;
 	private double rotation = 0;
+	private String id;
+	private String index;
+	private int h;
+	private int w;
+	private int x;
+	private int y;
+//	private Document svgDocument;
+	private Document document;
+	private String initialColorToSet;
 
 	public CustomImageTile(LinkedList<String> data, File svgFolder) {
 		this.data = data;
 		panel = new JPanel(null);
 		svgCanvas = new JSVGCanvas();
 		svgCanvas.setDocumentState(JSVGCanvas.ALWAYS_DYNAMIC);
-
-		initView(svgFolder);
+		id = generateUniqueId();
+		initView();
 		enableDrag();
 		enableResize();
 		enableSelection();
+		this.initialColorToSet = "#000000"; // Speichern für später
+		setSVGPathColor(initialColorToSet);
 
 	}
 
-	private void initView(File svgFolder) {
+	public CustomImageTile(LinkedList<String> data) {
+		this.data = data;
+		panel = new JPanel(null);
+		svgCanvas = new JSVGCanvas();
+		svgCanvas.setDocumentState(JSVGCanvas.ALWAYS_DYNAMIC);
+		id = generateUniqueId();
+		initView();
+		enableDrag();
+		enableResize();
+		enableSelection();
+		this.initialColorToSet = "#000000"; // Speichern für später
+		setSVGPathColor(initialColorToSet);
+
+	}
+
+	public CustomImageTile() {
+		this.panel = null;
+		this.data = null;
+		this.svgCanvas = null;
+		// TODO Auto-generated constructor stub
+	}
+
+	public Document loadSVGDocument(String svgFilePath) throws Exception {
+		String parser = XMLResourceDescriptor.getXMLParserClassName();
+		SAXSVGDocumentFactory factory = new SAXSVGDocumentFactory(parser);
+		return factory.createDocument(new File(svgFilePath).toURI().toString());
+	}
+
+	private void initView() {
+		try {
+			document = loadSVGDocument(data.get(IDX_FILEPATH));
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		File svgFileToLoad = new File(data.get(IDX_FILEPATH));
 		String fileName = data.get(IDX_FILENAME);
-		int h = Integer.parseInt(data.get(IDX_HEIGHT));
-		int w = Integer.parseInt(data.get(IDX_WIDTH));
-		int x = Integer.parseInt(data.get(IDX_POS_X));
-		int y = Integer.parseInt(data.get(IDX_POS_Y));
+		index = data.get(IDX_INDEX);
+		h = Integer.parseInt(data.get(IDX_HEIGHT));
+		w = Integer.parseInt(data.get(IDX_WIDTH));
+		x = Integer.parseInt(data.get(IDX_POS_X));
+		y = Integer.parseInt(data.get(IDX_POS_Y));
 
 		panel.setBounds(x, y, w, h);
-		panel.setOpaque(false); // Setzen Sie das Panel als transparent
-		panel.setBorder(null); // Entfernen Sie den Rand, falls nicht benötigt
+		panel.setOpaque(false);
+		panel.setBorder(null);
 		panel.setLayout(null);
-		
-		
-		svgCanvas.setOpaque(false);
-		svgCanvas.setBackground(new Color(0, 0, 0, 0)); // vollständig transparent
 
-		svgCanvas.setURI(new File(svgFolder, fileName).toURI().toString());
-//		svgCanvas.setBounds(0, 0, w, h);
+		svgCanvas.setOpaque(false);
+		svgCanvas.setBackground(new Color(0, 0, 0, 0)); // Vollständig transparent
+
+		// Listener hinzufügen, BEVOR setURI aufgerufen wird
+		svgCanvas.addSVGDocumentLoaderListener(new SVGDocumentLoaderAdapter() {
+			@Override
+			public void documentLoadingCompleted(SVGDocumentLoaderEvent e) {
+				System.out.println("SVG Document loaded: " + svgFileToLoad.getName());
+				// Apply any pending color change
+				if (initialColorToSet != null && !initialColorToSet.isEmpty()) {
+					setSVGPathColor(initialColorToSet);
+				}
+			}
+		});
+
+		svgCanvas.setURI(svgFileToLoad.toURI().toString()); // Löst das Laden und den Listener aus
 		svgCanvas.setLocation(0, 0);
 		svgCanvas.setSize(w, h);
-//		svgCanvas.setMySizeToSVGContent(true); // Eigene Methode bauen, siehe unten
 
 		panel.add(svgCanvas);
 	}
@@ -76,98 +147,134 @@ public class CustomImageTile {
 	private void enableDrag() {
 		dragOffset = new Point();
 		svgCanvas.addMouseListener(new MouseAdapter() {
+
 			public void mousePressed(MouseEvent e) {
 				dragOffset.setLocation(e.getPoint());
-//				System.out.println("CustomImageTile Drag x: " + e.getX() + " y: " + e.getY());
 			}
 
 			@Override
 			public void mouseClicked(MouseEvent e) {
 				toggleSelected();
-//				System.out.println("CustomImageTile Drag x: " + e.getX() + " y: " + e.getY());
 			}
 
-			
 			@Override
 			public void mouseEntered(MouseEvent e) {
-				if(!e.isAltDown()) {
-					panel.setBorder(BorderFactory.createLineBorder(Color.RED, 2)); // oder andere Farbe/Stärke
+				temporarySelected = true;
+				if (!e.isAltDown()) {
+					if (!isSelected()) {
+						panel.setBorder(BorderFactory.createLineBorder(Color.RED, 2)); // oder andere Farbe/Stärke
+					} else {
+						panel.setBorder(BorderFactory.createLineBorder(Color.RED, 2)); // oder andere Farbe/Stärke
+					}
+
 				} else {
 					panel.setBorder(BorderFactory.createLineBorder(Color.RED, 2)); // oder andere Farbe/Stärke
 					svgCanvas.setBorder(BorderFactory.createLineBorder(Color.BLUE, 2)); // oder andere Farbe/Stärke
 				}
-
+				if (updateListener != null)
+					updateListener.onTileHover(CustomImageTile.this, true);
 			}
 
 			@Override
 			public void mouseExited(MouseEvent e) {
-				if(!selected)
-				panel.setBorder(null);
-				svgCanvas.setBorder(null);
+				temporarySelected = false;
+				if (!selected) {
+
+					panel.setBorder(null);
+					svgCanvas.setBorder(null);
+				} else {
+					panel.setBorder(BorderFactory.createLineBorder(Color.GREEN, 2)); // oder andere Farbe/Stärke
+				}
+
+				if (updateListener != null)
+					updateListener.onTileHover(CustomImageTile.this, false);
+
 			}
 		});
+
 		svgCanvas.addMouseMotionListener(new MouseMotionAdapter() {
+			private Point lastPoint;
+
 			public void mouseDragged(MouseEvent e) {
 				if (enableDrag && !e.isAltDown()) {
-//					System.out.println("CustomImageTile Drag x: " + e.getX() + " y: " + e.getY());
+					// Normales Drag-Verhalten für panel
 					int nx = panel.getX() + e.getX() - dragOffset.x;
 					int ny = panel.getY() + e.getY() - dragOffset.y;
 					panel.setLocation(nx, ny);
 					updateData();
-				} else 	if (enableDrag && e.isAltDown()) {
-//					System.out.println("CustomImageTile Drag x: " + e.getX() + " y: " + e.getY());
-					int nx = svgCanvas.getX() + e.getX() - dragOffset.x;
-					int ny = svgCanvas.getY() + e.getY() - dragOffset.y;
-					svgCanvas.setLocation(nx, ny);
-					updateData();
+					e.consume();
+				} else if (enableDrag && e.isAltDown()) {
+					// Rotationslogik
+					if (lastPoint != null) {
+						// Berechne die Differenz zur letzten Position
+						int deltaX = e.getX() - lastPoint.x;
+						// Sie können deltaY auch verwenden, wenn Sie Rotation in beide Richtungen
+						// möchten
+
+						// Rotationswinkel basierend auf der horizontalen Bewegung
+						rotation += deltaX * 0.5; // Anpassungsfaktor für die Empfindlichkeit
+						System.out.println("Rotate: " + rotation + "°");
+						rotateSVG(rotation);
+						updateData();
+						e.consume();
+					}
+					lastPoint = e.getPoint();
 				}
 			}
 
-		});
-		  // NEU: Zoom per Mausrad
-	    svgCanvas.addMouseWheelListener(e -> {
-	        if (!enableDrag || e.isControlDown()) { // Nur zoomen, wenn kein Drag aktiv oder Strg gedrückt
-	            double scaleFactor = e.getWheelRotation() < 0 ? 1.1 : 0.9; // Hoch = Vergrößern, Runter = Verkleinern
-	            scaleSVG(scaleFactor);
-	            updateData();
-	            e.consume(); // Verhindert Scrollen des Eltern-Panels
-	        } else  if (!enableDrag || e.isAltDown()) {
-	            int direction = e.getWheelRotation(); // -1 = hoch, +1 = runter
-	            rotation += direction * 5; // z.B. 5° pro Schritt
-	            System.out.println("Rotate: " + rotation + "°");
-	            rotateSVG(rotation);
-	            updateData();
-	            e.consume();
-	        }
+			public void mousePressed(MouseEvent e) {
+				lastPoint = e.getPoint(); // Startpunkt für Rotation speichern
+			}
 
-	    });
+			public void mouseReleased(MouseEvent e) {
+				lastPoint = null;
+			}
+
+		});
+		// NEU: Zoom per Mausrad
+		svgCanvas.addMouseWheelListener(e -> {
+			if (!enableDrag || e.isControlDown()) { // Nur zoomen, wenn kein Drag aktiv oder Strg gedrückt
+				double scaleFactor = e.getWheelRotation() < 0 ? 1.1 : 0.9; // Hoch = Vergrößern, Runter = Verkleinern
+				scaleSVG(scaleFactor);
+				updateData();
+				e.consume(); // Verhindert Scrollen des Eltern-Panels
+			} else if (!enableDrag || e.isAltDown()) {
+				int direction = e.getWheelRotation(); // -1 = hoch, +1 = runter
+				rotation += direction * 1.1; // z.B. 5° pro Schritt
+				System.out.println("Rotate: " + rotation + "°");
+				rotateSVG(rotation);
+				updateData();
+				e.consume();
+			}
+
+		});
+
 	}
 
 	private void enableResize() {
-	    svgCanvas.addMouseMotionListener(new MouseMotionAdapter() {
-	        @Override
-	        public void mouseMoved(MouseEvent e) {
-	            if (e.getX() >= panel.getWidth() - RESIZE_MARGIN && 
-	                e.getY() >= panel.getHeight() - RESIZE_MARGIN) {
-	                svgCanvas.setCursor(Cursor.getPredefinedCursor(Cursor.SE_RESIZE_CURSOR));
-	                enableDrag = false;
-	            } else {
-	                svgCanvas.setCursor(Cursor.getDefaultCursor());
-	                enableDrag = true;
-	            }
-	        }
+		svgCanvas.addMouseMotionListener(new MouseMotionAdapter() {
+			@Override
+			public void mouseMoved(MouseEvent e) {
+				if (e.getX() >= panel.getWidth() - RESIZE_MARGIN && e.getY() >= panel.getHeight() - RESIZE_MARGIN) {
+					svgCanvas.setCursor(Cursor.getPredefinedCursor(Cursor.SE_RESIZE_CURSOR));
+					enableDrag = false;
+				} else {
+					svgCanvas.setCursor(Cursor.getDefaultCursor());
+					enableDrag = true;
+				}
+			}
 
-	        @Override
-	        public void mouseDragged(MouseEvent e) {
-	            if (svgCanvas.getCursor().getType() == Cursor.SE_RESIZE_CURSOR) {
-	                int nw = Math.max(10, e.getX()); // Mindestgröße 10x10
-	                int nh = Math.max(10, e.getY());
-	                panel.setSize(nw, nh);
-	                svgCanvas.setSize(nw, nh);
-	                updateData();
-	            }
-	        }
-	    });
+			@Override
+			public void mouseDragged(MouseEvent e) {
+				if (svgCanvas.getCursor().getType() == Cursor.SE_RESIZE_CURSOR) {
+					int nw = Math.max(10, e.getX()); // Mindestgröße 10x10
+					int nh = Math.max(10, e.getY());
+					panel.setSize(nw, nh);
+					svgCanvas.setSize(nw, nh);
+					updateData();
+				}
+			}
+		});
 	}
 
 	public void enableSelection() {
@@ -180,64 +287,62 @@ public class CustomImageTile {
 			}
 		});
 	}
-	
+
 	// Methode zum Rotieren der SVG
-public void rotateSVG(double degrees) {
-    // Speichere die Rotation
-    this.rotation = degrees;
-    
-    // AffineTransform für die Rotation erstellen
-    AffineTransform at = new AffineTransform();
-    
-    // Mittelpunkt des Panels für die Rotation berechnen
-    double centerX = panel.getWidth() / 2.0;
-    double centerY = panel.getHeight() / 2.0;
-    
-    // Transformation aufbauen:
-    // 1. Zum Ursprung verschieben (Mittelpunkt des Panels)
-    // 2. Rotieren
-    // 3. Zurück verschieben
-    at.translate(centerX, centerY);
-    at.rotate(Math.toRadians(degrees));
-    at.translate(-centerX, -centerY);
-    
-    // Transformieren des gesamten Panels
-    panel.setLayout(new OverlayLayout(panel)); // Hilft bei der korrekten Darstellung
-    svgCanvas.setRenderingTransform(at, true);
-    
-    // Panel neu zeichnen
-    panel.revalidate();
-    panel.repaint();
-    
-    updateData();
-}
-	 void scaleSVG(double scaleFactor) {
-	    // Aktuelle Größe des SVG-Canvas
-	    int currentWidth = svgCanvas.getWidth();
-	    int currentHeight = svgCanvas.getHeight();
-	    
-	    // Neue Größe berechnen
-	    int newWidth = (int) (currentWidth * scaleFactor);
-	    int newHeight = (int) (currentHeight * scaleFactor);
-	    
-	    // Größe anpassen (Panel + Canvas)
-	    panel.setSize(newWidth, newHeight);
-	    svgCanvas.setSize(newWidth, newHeight);
-	    
-	    updateData(); // Daten aktualisieren
+	public void rotateSVG(double degrees) {
+		this.rotation = degrees;
+
+		AffineTransform at = new AffineTransform();
+		double centerX = panel.getWidth() / 2.0;
+		double centerY = panel.getHeight() / 2.0;
+
+		at.translate(centerX, centerY);
+		at.rotate(Math.toRadians(degrees));
+		at.translate(-centerX, -centerY);
+
+		panel.setLayout(new OverlayLayout(panel));
+		svgCanvas.setRenderingTransform(at, true);
+
+		panel.revalidate();
+		panel.repaint();
+
+		// applyTransform war hier zu früh
+		updateData();
 	}
 
-	private boolean selected = false;
+	public JSVGCanvas getSvgCanvas() {
+		return svgCanvas;
+	}
+
+	void scaleSVG(double scaleFactor) {
+		// Aktuelle Größe des SVG-Canvas
+		int currentWidth = svgCanvas.getWidth();
+		int currentHeight = svgCanvas.getHeight();
+
+		// Neue Größe berechnen
+		int newWidth = (int) (currentWidth * scaleFactor);
+		int newHeight = (int) (currentHeight * scaleFactor);
+
+		// Größe anpassen (Panel + Canvas)
+		panel.setSize(newWidth, newHeight);
+		svgCanvas.setSize(newWidth, newHeight);
+
+		updateData(); // Daten aktualisieren
+	}
+
+	public void toggleMirrorHorizontal() {
+		isMirroredVertical = !isMirroredVertical;
+		applyTransform();
+	}
+
+	public void toggleMirrorVertical() {
+		isMirroredHorizontal = !isMirroredHorizontal;
+		applyTransform();
+	}
 
 	private void toggleSelected() {
 		selected = !selected;
-//		if(selected) {
-////			svgCanvas.setBackground(new Color(0, 1, 0, 0.3f)); // vollständig transparent
-//		} else {
-//			svgCanvas.setBackground(new Color(0, 0, 0, 0)); // vollständig transparent
-//		}
-		
-		panel.setBorder(selected ? BorderFactory.createLineBorder(Color.RED, 2) : null);
+		panel.setBorder(selected ? BorderFactory.createLineBorder(Color.GREEN, 2) : null);
 	}
 
 	public boolean isSelected() {
@@ -250,26 +355,12 @@ public void rotateSVG(double degrees) {
 	}
 
 	private void updateData() {
-	    data.set(IDX_POS_X, String.valueOf(panel.getX()));
-	    data.set(IDX_POS_Y, String.valueOf(panel.getY()));
-	    data.set(IDX_WIDTH, String.valueOf(panel.getWidth()));
-	    data.set(IDX_HEIGHT, String.valueOf(panel.getHeight()));
-	    notifyUpdate(); // <- Hier
+		data.set(IDX_POS_X, String.valueOf(panel.getX()));
+		data.set(IDX_POS_Y, String.valueOf(panel.getY()));
+		data.set(IDX_WIDTH, String.valueOf(panel.getWidth()));
+		data.set(IDX_HEIGHT, String.valueOf(panel.getHeight()));
+
 	}
-
-
-
-
-	public void setTileUpdateListener(TileUpdateListener listener) {
-	    this.updateListener = listener;
-	}
-
-	private void notifyUpdate() {
-	    if (updateListener != null) {
-	        updateListener.onTileUpdated(this);
-	    }
-	}
-
 
 	public JPanel getPanel() {
 		return panel;
@@ -279,39 +370,179 @@ public void rotateSVG(double degrees) {
 		return data.get(IDX_FILENAME);
 	}
 
-	public void setFilename(String newName) {
-		// TODO Auto-generated method stub
-//		data.set(newName);
+	public String getFile() {
+		return data.get(IDX_FILEPATH);
 	}
-	
+
+	public void setFilename(String newName) {
+		data.set(IDX_FILENAME, newName);
+	}
+
+	public void removeFromParent() {
+		if (panel.getParent() != null) {
+			panel.getParent().remove(panel);
+			panel.getParent().revalidate();
+			panel.getParent().repaint();
+		}
+	}
+
 	public void mouseDragged(MouseEvent e) {
-	    if (e.isShiftDown()) {
-	        // Canvas innerhalb des Panels verschieben
-	        int nx = svgCanvas.getX() + e.getX() - dragOffset.x;
-	        int ny = svgCanvas.getY() + e.getY() - dragOffset.y;
-	        svgCanvas.setLocation(nx, ny);
-	        updateData();
-	        return;
-	    }
+		if (e.isShiftDown()) {
+			// Canvas innerhalb des Panels verschieben
+			int nx = svgCanvas.getX() + e.getX() - dragOffset.x;
+			int ny = svgCanvas.getY() + e.getY() - dragOffset.y;
+			svgCanvas.setLocation(nx, ny);
+			updateData();
+			return;
+		}
 
-	    if (e.isAltDown() && e.isControlDown()) {
-	        // Nur Panelgröße ändern, Canvas bleibt wie er ist
-	        int nw = Math.max(10, panel.getWidth() + e.getX() - dragOffset.x);
-	        int nh = Math.max(10, panel.getHeight() + e.getY() - dragOffset.y);
-	        panel.setSize(nw, nh);
-	        updateData();
-	        return;
-	    }
+		if (e.isAltDown() && e.isControlDown()) {
+			// Nur Panelgröße ändern, Canvas bleibt wie er ist
+			int nw = Math.max(10, panel.getWidth() + e.getX() - dragOffset.x);
+			int nh = Math.max(10, panel.getHeight() + e.getY() - dragOffset.y);
+			panel.setSize(nw, nh);
+			updateData();
+			return;
+		}
 
-	    if (enableDrag) {
-	        // Normales Dragging
-	        int nx = panel.getX() + e.getX() - dragOffset.x;
-	        int ny = panel.getY() + e.getY() - dragOffset.y;
-	        panel.setLocation(nx, ny);
-	        updateData();
-	    }
+		if (enableDrag) {
+			// Normales Dragging
+			int nx = panel.getX() + e.getX() - dragOffset.x;
+			int ny = panel.getY() + e.getY() - dragOffset.y;
+			panel.setLocation(nx, ny);
+			updateData();
+		}
+	}
+
+	public boolean isTemporarySelected() {
+		return temporarySelected;
+	}
+
+	private void applyTransform() {
+		AffineTransform at = new AffineTransform();
+
+		double centerX = panel.getWidth() / 2.0;
+		double centerY = panel.getHeight() / 2.0;
+
+		at.translate(centerX, centerY);
+		if (isMirroredHorizontal)
+			at.scale(-1, 1);
+		if (isMirroredVertical)
+			at.scale(1, -1);
+		at.rotate(Math.toRadians(rotation));
+		at.translate(-centerX, -centerY);
+
+		svgCanvas.setRenderingTransform(at, true);
+		panel.revalidate();
+		panel.repaint();
+	}
+
+	public void setSVGPathColor(String color) {
+		if (color == null || color.isEmpty()) {
+			return;
+		}
+
+		try {
+			// Get the SVG document directly from the canvas
+			Document svgDoc = svgCanvas.getSVGDocument();
+
+			if (svgDoc == null) {
+				System.err.println("SVG document not available in canvas yet");
+				// Store color for later application when document is loaded
+				this.initialColorToSet = color;
+				return;
+			}
+
+			System.out.println("Setting SVG color to: " + color);
+
+			// Apply color to all relevant SVG elements
+			setColorForElementType(svgDoc, "path", color);
+			setColorForElementType(svgDoc, "circle", color);
+			setColorForElementType(svgDoc, "rect", color);
+			setColorForElementType(svgDoc, "polygon", color);
+			setColorForElementType(svgDoc, "polyline", color);
+			setColorForElementType(svgDoc, "ellipse", color);
+
+			// Force repaint
+			svgCanvas.repaint();
+
+		} catch (Exception e) {
+			System.err.println("Error changing SVG color: " + e.getMessage());
+			e.printStackTrace();
+		}
+	}
+
+	private void setColorForElementType(Document doc, String tagName, String color) {
+		NodeList elements = doc.getElementsByTagName(tagName);
+		for (int i = 0; i < elements.getLength(); i++) {
+			Element element = (Element) elements.item(i);
+			// Remove any style that might override our fill
+			String currentStyle = element.getAttribute("style");
+			if (currentStyle != null && !currentStyle.isEmpty()) {
+				// Remove any fill property from inline style
+				currentStyle = currentStyle.replaceAll("fill:[^;]+;?", "");
+				if (!currentStyle.isEmpty()) {
+					element.setAttribute("style", currentStyle);
+				} else {
+					element.removeAttribute("style");
+				}
+			}
+			element.setAttribute("fill", color);
+		}
+	}
+
+	public LinkedList<String> getData() {
+		return data;
+	}
+
+	private String generateUniqueId() {
+		return UUID.randomUUID().toString(); // Oder eine andere ID-Generierung
+	}
+
+	public void setUpdateListener(TileUpdateListener listener) {
+		this.updateListener = listener;
+	}
+
+	public String getID() {
+		// TODO Auto-generated method stub
+		return id;
+	}
+
+//	private void applyFillColor(Element element, String color) {
+//		element.removeAttribute("style");
+//		element.setAttribute("fill", color);
+//	}
+
+	public void updateTileInSvg(String tileId, double x, double y, double width, double height) {
+		Element tileElement = document.getElementById(tileId);
+		if (tileElement != null) {
+			tileElement.setAttribute("x", String.valueOf(x));
+			tileElement.setAttribute("y", String.valueOf(y));
+			tileElement.setAttribute("width", String.valueOf(width));
+			tileElement.setAttribute("height", String.valueOf(height));
+		} else {
+			System.err.println("Element mit ID '" + tileId + "' nicht gefunden.");
+		}
+	}
+
+	public static CustomImageTile copyFrom(CustomImageTile original) {
+		// TODO Auto-generated method stub
+		CustomImageTile copy = original;
+		return copy;
+	}
+
+	public static CustomImageTile copyTile(CustomImageTile original) {
+		// Dies ist nur ein Beispiel - Sie müssen diese Methode entsprechend Ihrer
+		// CustomImageTile-Klasse anpassen
+
+		// Annahme: CustomImageTile hat einen Konstruktor oder eine Methode zum Kopieren
+		// Zum Beispiel: CustomImageTile(Image image, String name, etc.)
+
+		// Alternativ könnten Sie eine copyFrom-Methode in CustomImageTile haben
+		CustomImageTile copy = new CustomImageTile(); // Leeren Konstruktor aufrufen
+		copy.copyFrom(original); // Diese Methode müssten Sie in CustomImageTile implementieren
+
+		return copy;
 	}
 
 }
-
-

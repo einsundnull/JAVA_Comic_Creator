@@ -5,26 +5,33 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Graphics;
+import java.awt.Insets;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.MouseWheelListener;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.lang.ref.WeakReference;
+import java.io.IOException;
+import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
-import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.ImageIcon;
@@ -35,560 +42,858 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
+import javax.swing.JTextField;
+import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
 
 import org.apache.batik.swing.JSVGCanvas;
-import org.apache.batik.transcoder.TranscoderException;
-import org.apache.batik.transcoder.TranscoderInput;
-import org.apache.batik.transcoder.TranscoderOutput;
-import org.apache.batik.transcoder.image.PNGTranscoder;
 
 public class SvgTileViewerApp {
 
-    private boolean isLoadingFolder = false;
-    private File currentFolder;
-    private SVGDataManager dataManager = new SVGDataManager();
+	private static TileUpdateListener updateListener;
+	private boolean isLoadingFolder = false;
+	private boolean scenePanelIsSelected;
+	private File currentFolder;
 
-    private JSVGCanvas svgCanvas;
-    private JFrame frame;
-    private JPanel tilePanel;
-    private JPanel selectedPanel;
-    private JPanel rightPanel;
-    private JPanel scenePanel = new JPanel(null);
-    private JScrollPane tileScrollPane;
-    private JScrollPane selectedScrollPane;
-    private JScrollPane centerScrollPane;
+	private JSVGCanvas svgCanvas;
+	private JFrame frame;
+	private JPanel tilePanel;
+	private JPanel selectedPanel;
+	private JPanel rightPanel;
+	private JPanel scenePanel = new JPanel(null);
+	private JScrollPane tileScrollPane;
+	private JScrollPane selectedScrollPane;
+	private JScrollPane centerScrollPane;
 
-    private Map<String, WeakReference<BufferedImage>> imageCache = new HashMap<>();
-    private Map<JCheckBox, File> checkboxFileMap = new HashMap<>();
-    private Map<File, JPanel> fileToTileMap = new HashMap<>();
-    private Map<File, JCheckBox> fileCheckboxMap = new HashMap<>();
-    private Map<File, JPanel> selectedFilePanels = new HashMap<>();
-    
-    // Hauptsammlung aller Tiles, indexiert nach Dateinamen
-    private final Map<String, CustomImageTile> allTiles = new HashMap<>();
-    
-    // Neue separate Liste für ausgewählte Tiles
-    private final List<CustomImageTile> selectedTiles = new ArrayList<>();
+	private Rectangle captureZone;
+	private Point startPoint = new Point(0, 0);
 
-    private LinkedList<LinkedList<String>> svgData = new LinkedList<>();
-    private LinkedList<LinkedList<String>> svgs = new LinkedList<>();
-    private final List<File> selectedFiles = new ArrayList<>();
+	private Rectangle captureZoneReset;
+	private Point startPointReset;
 
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new SvgTileViewerApp().createAndShowUI());
-    }
+	private JTextField nameField;
 
-    private void createAndShowUI() {
-        currentFolder = LastUsedDirectory.load();
-        if (currentFolder == null || !currentFolder.isDirectory())
-            currentFolder = new File(System.getProperty("user.home"));
+	private File tempFile;
+	private double currentZoom = 1.0;
 
-        frame = new JFrame("SVG Tile Viewer");
-  
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(1000, 700);
-        frame.setLayout(new BorderLayout());
+	SVGDataManager svgDataManager = new SVGDataManager();
+	private Map<File, JPanel> fileToTileMap = new HashMap<>();
+	private Map<File, List<JPanel>> selectedFilePanels = new HashMap<>();
+	private Map<String, CustomImageTile> allTiles = new HashMap<>();
+	private List<CustomImageTile> addedTiles = new ArrayList<>();
+	private LinkedList<LinkedList<String>> svgData = new LinkedList<>();
+	private List<Rectangle> tilePositions = new ArrayList<>(); // Speichert Positionen aller Kacheln
+	// For renaming
+	private String oldFileName;
 
-        JButton chooseFolderBtn = new JButton("Verzeichnis auswählen");
-        chooseFolderBtn.addActionListener(e -> chooseFolder());
-        frame.add(chooseFolderBtn, BorderLayout.NORTH);
+	public static void main(String[] args) {
+		SwingUtilities.invokeLater(() -> new SvgTileViewerApp().createAndShowUI());
+	}
 
-        // Linkes Panel
-        tilePanel = new JPanel();
-        tilePanel.setLayout(new BoxLayout(tilePanel, BoxLayout.Y_AXIS));
-        tilePanel.setBackground(Color.WHITE);
-        tileScrollPane = new JScrollPane(tilePanel);
-        tileScrollPane.setPreferredSize(new Dimension(300, 0));
-        tileScrollPane.getVerticalScrollBar().setUnitIncrement(16);
-        frame.add(tileScrollPane, BorderLayout.WEST);
+	// Helper-Methode zum Auswählen/Abwählen aller Tiles
+	private void selectAllTiles(boolean select) {
 
-        // Zentrales Panel für CustomImageTiles
-        scenePanel = new JPanel(null); // Null-Layout für freie Positionierung der Tiles
-        scenePanel.setPreferredSize(new Dimension(2000, 2000));
-        scenePanel.setBackground(Color.WHITE);
-        scenePanel.setFocusable(true);
-        
-        scenePanel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                System.out.println("ScenePanel clicked");
-                scenePanel.requestFocusInWindow();
-                selectAllTiles(false);
-            }
-            
+		if (select) {
+			for (CustomImageTile tile : addedTiles) {
+				tile.setSelected(true);
+
+			}
+		} else {
+			for (CustomImageTile tile : addedTiles) {
+				tile.setSelected(false);
+			}
+		}
+	}
+
+	// Helper-Methode zum Skalieren aller ausgewählten Tiles
+	private void scaleSelectedTiles(double scaleFactor) {
+		for (CustomImageTile tile : addedTiles) {
+			if (tile.isSelected())
+				tile.scaleSVG(scaleFactor);
+		}
+		scenePanel.repaint();
+	}
+
+	private void loadFolderFiles(File folder) {
+		SwingUtilities.invokeLater(() -> {
+			tilePanel.removeAll();
+			selectedPanel.removeAll();
+			fileToTileMap.clear();
+			selectedFilePanels.clear();
+			allTiles.clear();
+			svgData = svgDataManager.getSVGData(folder);
+			// Alle SVG-Dateien prüfen
+			File[] allSVGFiles = folder.listFiles(f -> f.isFile() && f.getName().toLowerCase().endsWith(".svg"));
+			if (allSVGFiles == null || allSVGFiles.length == 0) {
+				JOptionPane.showMessageDialog(frame, "Keine SVG-Dateien gefunden.");
+				if (svgCanvas != null) {
+					svgCanvas.setURI(null);
+				}
+				return;
+			}
+			Arrays.sort(allSVGFiles);
+
+			// Tiles erzeugen und in Panel einfügen
+			for (LinkedList<String> data : svgData) {
+				CustomImageTile tile = new CustomImageTile(data, folder);
+				allTiles.put(tile.getFilename(), tile);
+
+				JPanel leftRow = createThumbnailRowLeft(data);
+				tilePanel.add(leftRow);
+				fileToTileMap.put(new File(data.get(1)), leftRow);
+			}
+
+			tilePanel.revalidate();
+			tilePanel.repaint();
+			selectedPanel.revalidate();
+			selectedPanel.repaint();
+		});
+	}
+
+	private JPanel createThumbnailRowLeft(LinkedList<String> data) {
+		// This method creates the ListView Items on the left and on the right
+		// ScrollView.
+		File file = new File(data.get(1));
+		JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+
+		JLabel thumb = new JLabel();
+		thumb.setPreferredSize(new Dimension(50, 50));
+		thumb.setOpaque(true);
+		thumb.setBackground(Color.WHITE);
+		row.add(thumb);
+
+		// Thumbnail laden
+		new Thread(() -> {
+			BufferedImage img = svgDataManager.getSvgThumbnail(new File(data.get(1)));
+			if (img != null)
+				SwingUtilities.invokeLater(() -> thumb.setIcon(new ImageIcon(img)));
+		}).start();
+
+		thumb.addMouseListener(new MouseAdapter() {
+			public void mouseClicked(MouseEvent e) {
+
+			}
+		});
+
+		JButton add = new JButton("+");
+		add.setPreferredSize(new Dimension(30, 25));
+		add.setMargin(new Insets(0, 0, 0, 0)); // Minimale Padding
+		add.addActionListener(e -> {
+			CustomImageTile t = new CustomImageTile(data);
+			t.setUpdateListener(updateListener);
+			addedTiles.add(t);
+			JPanel returnValues[] = new JPanel[2];
+			returnValues[0] = createThumbnailRowRight(addedTiles.get(addedTiles.size() - 1), scenePanel,
+					svgDataManager)[0];
+			returnValues[1] = createThumbnailRowRight(addedTiles.get(addedTiles.size() - 1), scenePanel,
+					svgDataManager)[1];
+			JPanel rightRow = returnValues[0];
+			scenePanel = returnValues[1];
+			selectedPanel.add(rightRow);
+			selectedPanel.revalidate();
+			selectedPanel.repaint();
+			scenePanel = SVGTileViewerAppOutSource.setTileVisible(addedTiles.get(addedTiles.size() - 1), true,
+					scenePanel, centerScrollPane);
+
+		});
+		row.add(add, BorderLayout.EAST);
+		row = addEditTextField(row, file);
+
+		return row;
+	}
+
+	private JPanel[] createThumbnailRowRight(CustomImageTile tile, JPanel scenePanel, SVGDataManager svgDataManager) {
+		// Bestehender Code...
+		File file = new File(tile.getData().get(1));
+		JPanel row[] = new JPanel[2];
+		row[0] = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+		row[0].setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+		row[0].putClientProperty("id", tile.getID());
+		row[1] = scenePanel;
+		// Fügen Sie dem gesamten Panel einen MouseListener hinzu
+		row[0].addMouseListener(new MouseAdapter() {
+			@Override
+			public void mouseEntered(MouseEvent e) {
+				row[1] = highlightCorrespondingTileInCanvas(file, row[1], true);
+				row[0].setBackground(Color.LIGHT_GRAY); // Auch das aktuelle Panel hervorheben
+			}
+
+			@Override
+			public void mouseExited(MouseEvent e) {
+				row[1] = highlightCorrespondingTileInCanvas(file, row[1], false);
+				row[0].setBackground(Color.WHITE); // Zurücksetzen
+			}
+		});
+
+		// Setzen Sie den Hintergrund, damit die Hervorhebung sichtbar ist
+		row[0].setBackground(Color.WHITE);
+		row[0].setOpaque(true);
+		// This method creates the ListView Items on the left and on the right
+		// ScrollView.
+
+		JLabel thumb = new JLabel();
+		thumb.setPreferredSize(new Dimension(50, 50));
+		thumb.setOpaque(true);
+		thumb.setBackground(Color.WHITE);
+		row[0].add(thumb);
+
+		new Thread(() -> {
+			BufferedImage img = svgDataManager.getSvgThumbnail(file);
+			if (img != null)
+				SwingUtilities.invokeLater(() -> thumb.setIcon(new ImageIcon(img)));
+		}).start();
+
+		thumb.addMouseListener(new MouseAdapter() {
+			public void mouseClicked(MouseEvent e) {
+				scenePanel.setComponentZOrder(tile.getPanel(), 0);
+			}
+		});
+
+		JButton mirrorVertical = new JButton("↔");
+		mirrorVertical.setPreferredSize(new Dimension(30, 25));
+		mirrorVertical.setMargin(new Insets(0, 0, 0, 0)); // Minimale Padding
+		mirrorVertical.addActionListener(e -> {
+			tile.toggleMirrorVertical();
+		});
+		row[0].add(mirrorVertical, BorderLayout.EAST);
+
+		JButton mirrorHorizontal = new JButton("↨");
+		mirrorHorizontal.setPreferredSize(new Dimension(30, 25));
+		mirrorHorizontal.setMargin(new Insets(0, 0, 0, 0)); // Minimale Padding
+		mirrorHorizontal.addActionListener(e -> {
+			tile.toggleMirrorHorizontal();
+		});
+		row[0].add(mirrorHorizontal, BorderLayout.EAST);
+
+		JButton setColor = new JButton("C");
+		setColor.setPreferredSize(new Dimension(30, 25));
+		setColor.setMargin(new Insets(0, 0, 0, 0)); // Minimale Padding
+		setColor.addActionListener(e -> {
+			// Öffne Color Picker
+			ColorPickerWindow.open(setColor, color -> {
+				// verwende die gewählte Farbe
+				System.out.println("Farbe: " + color);
+				tile.setSVGPathColor(ColorPickerWindow.colorToHex(color));
+			});
+		});
+		row[0].add(setColor, BorderLayout.EAST);
+
+		row[0] = addCheckBox(row[0], tile);
+		JPanel returnValues[] = { row[0], scenePanel };
+		return returnValues;
+	}
+
+	private JPanel highlightCorrespondingTileInCanvas(File file, JPanel scenePanel, boolean isHovered) {
+		String filename = file.getName();
+		for (CustomImageTile tile : addedTiles) {
+			if (tile.getFilename().equals(filename)) {
+				if (isHovered) {
+					// Hervorhebung des Tiles im Canvas (z.B. mit einem speziellen Rahmen)
+					tile.getPanel().setBorder(BorderFactory.createLineBorder(Color.BLUE, 2));
+				} else {
+					// Zurücksetzen auf den normalen Zustand
+					if (!tile.isSelected()) {
+						tile.getPanel().setBorder(null);
+					} else {
+						tile.getPanel().setBorder(BorderFactory.createLineBorder(Color.GREEN, 2));
+					}
+				}
+				break;
+			}
+		}
+		scenePanel.repaint();
+		return scenePanel;
+	}
+
+	private void highlightCorrespondingItemInRightPanel(CustomImageTile tile, boolean isHovered) {
+		int index = 0;
+		for (Component component : selectedPanel.getComponents()) {
+//			if (!(component instanceof JPanel))
+//				continue;
+
+			JPanel panel = (JPanel) component;
+			String id = (String) panel.getClientProperty("id");
+			System.err.println(id);
+			System.err.println(tile.getID());
+			if (id.equals(tile.getID())) {
+				if (isHovered) {
+					panel.setBackground(Color.LIGHT_GRAY); // Hover color
+					// Scrollen, um das entsprechende Panel sichtbar zu machen
+					selectedScrollPane.getViewport().scrollRectToVisible(panel.getBounds());
+				} else {
+					panel.setBackground(Color.WHITE); // Original color
+				}
+				break;
+			}
+			index++;
+		}
+	}
+
+	// Und schließlich die removeFileFromSelectedPanel-Methode
+
+	private void chooseFolder() {
+		JFileChooser chooser = new JFileChooser(LastUsedDirectory.load());
+		chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+
+		int result = chooser.showOpenDialog(frame);
+
+		if (result == JFileChooser.APPROVE_OPTION) {
+			currentFolder = chooser.getSelectedFile();
+			LastUsedDirectory.save(currentFolder);
+
+			// Cache leeren beim Ordnerwechsel
+			svgDataManager.imageCache.clear();
+			System.gc();
+
+			new Thread(() -> {
+				isLoadingFolder = true;
+				loadFolderFiles(currentFolder);
+				isLoadingFolder = false;
+			}).start();
+		}
+	}
+
+	private void scrollToThumbnailInLeftPanel(File file) {
+		JPanel leftThumbnail = fileToTileMap.get(file);
+		if (leftThumbnail != null) {
+			SwingUtilities.invokeLater(() -> {
+				Rectangle rect = leftThumbnail.getBounds();
+				rect.y = leftThumbnail.getY();
+				tileScrollPane.getViewport().scrollRectToVisible(rect);
+			});
+		}
+	}
+
+	private void startMemoryCleanupTimer() {
+		new javax.swing.Timer(60000, e -> System.gc()).start();
+	}
+
+	private void createAndShowUI() {
+		updateListener = new TileUpdateListener() {
+
+			@Override
+			public void onTileUpdated(CustomImageTile tile) {
+				// TODO Auto-generated method stub
+
+			}
+
+			@Override
+			public void onTileHover(boolean isHovered) {
+				System.out.println("SHH");
+			}
+
+			@Override
+			public void onTileHover(CustomImageTile tile, boolean isHovered) {
+				System.out.println("hover " + tile.getFilename());
+				highlightCorrespondingItemInRightPanel(tile, isHovered);
+			}
+
+			@Override
+			public void onTileHover(String id, boolean isHovered) {
+
+			}
+		};
+		currentFolder = LastUsedDirectory.load();
+		if (currentFolder == null || !currentFolder.isDirectory())
+			currentFolder = new File(System.getProperty("user.home"));
+
+		frame = new JFrame("SVG Tile Viewer");
+
+		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+		frame.setSize(1000, 700);
+		frame.setLayout(new BorderLayout());
+
+		JButton chooseFolderBtn = new JButton("Verzeichnis auswählen");
+		chooseFolderBtn.addActionListener(e -> chooseFolder());
+		frame.add(chooseFolderBtn, BorderLayout.NORTH);
+
+		// Linkes Panel
+		tilePanel = new JPanel();
+		tilePanel.setLayout(new BoxLayout(tilePanel, BoxLayout.Y_AXIS));
+		tilePanel.setBackground(Color.WHITE);
+		tileScrollPane = new JScrollPane(tilePanel);
+		tileScrollPane.setPreferredSize(new Dimension(300, 0));
+		tileScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+		frame.add(tileScrollPane, BorderLayout.WEST);
+
+		// Zentrales Panel für CustomImageTiles
+		scenePanel = new JPanel(null) {
+			@Override
+			protected void paintComponent(Graphics g) {
+				super.paintComponent(g);
+				if (captureZone != null) {
+					g.setColor(Color.RED);
+					g.drawRect(captureZone.x, captureZone.y, captureZone.width, captureZone.height);
+				}
+			}
+		};
+
+		scenePanel.addMouseMotionListener(new MouseMotionAdapter() {
+			@Override
+			public void mouseDragged(MouseEvent e) {
+				if (startPoint != null) {
+					int x = Math.min(startPoint.x, e.getX());
+					int y = Math.min(startPoint.y, e.getY());
+					int width = Math.abs(startPoint.x - e.getX());
+					int height = Math.abs(startPoint.y - e.getY());
+					captureZone = new Rectangle(x, y, width, height);
+					captureZoneReset = captureZone;
+					startPointReset = startPoint;
+					scenePanel.repaint();
+				}
+			}
+		});
+
+		scenePanel.setPreferredSize(new Dimension(2000, 2000));
+		scenePanel.setBackground(Color.WHITE);
+		scenePanel.setFocusable(true);
+
+		scenePanel.addMouseListener(new MouseAdapter() {
+
+			@Override
+			public void mousePressed(MouseEvent e) {
+				startPoint = e.getPoint();
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent e) {
+				if (startPoint != null) {
+					int x = Math.min(startPoint.x, e.getX());
+					int y = Math.min(startPoint.y, e.getY());
+					int width = Math.abs(startPoint.x - e.getX());
+					int height = Math.abs(startPoint.y - e.getY());
+					captureZone = new Rectangle(x, y, width, height);
+					saveCaptureZoneToTempFile();
+					scenePanel.repaint();
+				}
+			}
+
+			@Override
+			public void mouseClicked(MouseEvent e) {
+				scenePanel.requestFocusInWindow();
+				selectAllTiles(false);
+			}
+
 			@Override
 			public void mouseEntered(MouseEvent e) {
 				scenePanel.requestFocusInWindow();
 				scenePanel.setBorder(BorderFactory.createLineBorder(Color.GREEN, 2)); // oder andere Farbe/Stärke
+				scenePanelIsSelected = true;
 			}
 
 			@Override
 			public void mouseExited(MouseEvent e) {
 				scenePanel.setBorder(null);
+				scenePanelIsSelected = false;
 			}
-        });
-        
-        // Verbesserte Mausrad-Behandlung für das Skalieren der ausgewählten Tiles
-        scenePanel.addMouseWheelListener(new MouseWheelListener() {
-            @Override
-            public void mouseWheelMoved(MouseWheelEvent e) {
-                if (e.isControlDown()) {
-                    double scaleFactor = e.getWheelRotation() < 0 ? 1.1 : 0.9;
-                    // Direkte Nutzung der Liste der ausgewählten Tiles statt Durchlaufen aller Tiles
-                    for (CustomImageTile tile : selectedTiles) {
-                        tile.scaleSVG(scaleFactor);
-                    }
-                    scenePanel.repaint();
-                }
-            }
-        });
+		});
 
-        // Verbesserte Tastatursteuerung
-        scenePanel.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_A && e.isControlDown()) {
-                    selectAllTiles(true);
-                    System.out.println("Select All: " + selectedTiles.size() + " Tiles");
-                    scenePanel.repaint();
-                }
-                else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                    selectAllTiles(false);
-                    System.out.println("Select None");
-                    scenePanel.repaint();
-                }
-                // Neue Tastenkombination zum Skalieren aller ausgewählten Tiles
-                else if (e.getKeyCode() == KeyEvent.VK_PLUS && e.isControlDown()) {
-                    scaleSelectedTiles(1.1);
-                }
-                else if (e.getKeyCode() == KeyEvent.VK_MINUS && e.isControlDown()) {
-                    scaleSelectedTiles(0.9);
-                }
-            }
-        });
+		scenePanel.addMouseWheelListener(new MouseWheelListener() {
+			@Override
+			public void mouseWheelMoved(MouseWheelEvent e) {
+				if (e.isControlDown() && !scenePanelIsSelected) {
+					// Zoom für ausgewählte Tiles (bereits implementiert)
+					double scaleFactor = e.getWheelRotation() < 0 ? 1.1 : 0.9;
+					for (CustomImageTile tile : addedTiles) {
+						if (tile.isSelected())
+							tile.scaleSVG(scaleFactor);
+					}
+					scenePanel.repaint();
+				} else if (e.isControlDown() && scenePanelIsSelected) {
+					// Zoom in und out für das gesamte Panel
+					double zoomFactor = e.getWheelRotation() < 0 ? 1.1 : 0.9;
+					startPoint = e.getPoint();
+					zoomScenePanel(zoomFactor);
 
-        centerScrollPane = new JScrollPane(scenePanel);
-        centerScrollPane.getVerticalScrollBar().setUnitIncrement(16);
-        centerScrollPane.getHorizontalScrollBar().setUnitIncrement(16);
-        frame.add(centerScrollPane, BorderLayout.CENTER);
+				} else if (!e.isControlDown() && scenePanelIsSelected) {
+					// Vertikales Scrollen
+					JScrollBar vScrollBar = centerScrollPane.getVerticalScrollBar();
+					int scrollAmount = e.getUnitsToScroll() * vScrollBar.getUnitIncrement();
+					vScrollBar.setValue(vScrollBar.getValue() + scrollAmount);
+				} else if (!e.isControlDown() && e.isShiftDown() && scenePanelIsSelected) {
+					// Horizontales Scrollen
+					JScrollBar hScrollBar = centerScrollPane.getHorizontalScrollBar();
+					int scrollAmount = e.getUnitsToScroll() * hScrollBar.getUnitIncrement();
+					hScrollBar.setValue(hScrollBar.getValue() + scrollAmount);
+				}
+			}
+		});
 
-        // Rechtes Panel
-        selectedPanel = new JPanel();
-        selectedPanel.setLayout(new BoxLayout(selectedPanel, BoxLayout.Y_AXIS));
-        selectedPanel.setBackground(Color.WHITE);
-        selectedPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        selectedScrollPane = new JScrollPane(selectedPanel);
-        selectedScrollPane.setPreferredSize(new Dimension(300, 0));
-        selectedScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+		// Verbesserte Tastatursteuerung
+		scenePanel.addKeyListener(new KeyAdapter() {
+			@Override
+			public void keyPressed(KeyEvent e) {
+				if (e.getKeyCode() == KeyEvent.VK_A && e.isControlDown()) {
+					selectAllTiles(true);
+					scenePanel.repaint();
+				} else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+					selectAllTiles(false);
+					clearRectangle(false);
 
-        rightPanel = new JPanel(new BorderLayout());
-        rightPanel.add(selectedScrollPane, BorderLayout.CENTER);
-        rightPanel.setBackground(Color.WHITE);
-        rightPanel.setBorder(BorderFactory.createLineBorder(Color.GRAY));
-        frame.add(rightPanel, BorderLayout.EAST);
+					scenePanel.repaint();
+				}
+				// Neue Tastenkombination zum Skalieren aller ausgewählten Tiles
+				else if (e.getKeyCode() == KeyEvent.VK_PLUS && e.isControlDown()) {
+					scaleSelectedTiles(1.1);
+				} else if (e.getKeyCode() == KeyEvent.VK_MINUS && e.isControlDown()) {
+					scaleSelectedTiles(0.9);
+				} else if (e.getKeyCode() == KeyEvent.VK_DELETE) {
+//					for (CustomImageTile t : addedTiles) {
+//						if (t.isSelected()) {
+//							removeSelectedSVG(row,tile);
+//						}
+//					}
+				}
+			}
+		});
 
-        // Toggle Buttons
-        JButton toggleLeft = new JButton("⮜");
-        toggleLeft.addActionListener(e -> {
-            tileScrollPane.setVisible(!tileScrollPane.isVisible());
-            toggleLeft.setText(tileScrollPane.isVisible() ? "⮜" : "⮞");
-        });
-        JButton toggleRight = new JButton("⮞");
-        toggleRight.addActionListener(e -> {
-            rightPanel.setVisible(!rightPanel.isVisible());
-            toggleRight.setText(rightPanel.isVisible() ? "⮞" : "⮜");
-        });
-        
-        // Hinzufügen von Steuerungstasten-Panel
-        JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
-        JButton selectAllBtn = new JButton("Alle auswählen");
-        selectAllBtn.addActionListener(e -> {
-            selectAllTiles(true);
-            scenePanel.repaint();
-        });
-        
-        JButton selectNoneBtn = new JButton("Keine auswählen");
-        selectNoneBtn.addActionListener(e -> {
-            selectAllTiles(false);
-            scenePanel.repaint();
-        });
-        
-        JButton scaleUpBtn = new JButton("Vergrößern");
-        scaleUpBtn.addActionListener(e -> scaleSelectedTiles(1.1));
-        
-        JButton scaleDownBtn = new JButton("Verkleinern");
-        scaleDownBtn.addActionListener(e -> scaleSelectedTiles(0.9));
-        
-        controlPanel.add(selectAllBtn);
-        controlPanel.add(selectNoneBtn);
-        controlPanel.add(scaleUpBtn);
-        controlPanel.add(scaleDownBtn);
-        
-        JPanel bottomPanel = new JPanel(new BorderLayout());
-        bottomPanel.add(controlPanel, BorderLayout.CENTER);
-        
-        JPanel togglePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        togglePanel.add(toggleLeft);
-        togglePanel.add(toggleRight);
-        bottomPanel.add(togglePanel, BorderLayout.SOUTH);
-        
-        frame.add(bottomPanel, BorderLayout.SOUTH);
+		centerScrollPane = new JScrollPane(scenePanel);
+		centerScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+		centerScrollPane.getHorizontalScrollBar().setUnitIncrement(16);
+		frame.add(centerScrollPane, BorderLayout.CENTER);
 
-        loadFolderFiles(currentFolder);
+		// Rechtes Panel
+		selectedPanel = new JPanel();
+		selectedPanel.setLayout(new BoxLayout(selectedPanel, BoxLayout.Y_AXIS));
+		selectedPanel.setBackground(Color.WHITE);
+		selectedPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+		selectedScrollPane = new JScrollPane(selectedPanel);
+		selectedScrollPane.setPreferredSize(new Dimension(300, 0));
+		selectedScrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
-        frame.setLocationRelativeTo(null);
-        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);  // Maximiert das Fenster
-//        frame.setUndecorated(true);         
-        frame.setVisible(true);
-        scenePanel.requestFocusInWindow();
-        centerScrollPane.setFocusable(false);
+		rightPanel = new JPanel(new BorderLayout());
+		rightPanel.add(selectedScrollPane, BorderLayout.CENTER);
+		rightPanel.setBackground(Color.WHITE);
+		rightPanel.setBorder(BorderFactory.createLineBorder(Color.GRAY));
+		frame.add(rightPanel, BorderLayout.EAST);
 
-        startMemoryCleanupTimer();
-    }
+		// Toggle Buttons
+		JButton toggleLeft = new JButton("⮜");
+		toggleLeft.addActionListener(e -> {
+			tileScrollPane.setVisible(!tileScrollPane.isVisible());
+			toggleLeft.setText(tileScrollPane.isVisible() ? "⮜" : "⮞");
+		});
+		JButton toggleRight = new JButton("⮞");
+		toggleRight.addActionListener(e -> {
+			rightPanel.setVisible(!rightPanel.isVisible());
+			toggleRight.setText(rightPanel.isVisible() ? "⮞" : "⮜");
+		});
 
-    // Helper-Methode zum Auswählen/Abwählen aller Tiles
-    private void selectAllTiles(boolean select) {
-        selectedTiles.clear();
-        
-        if (select) {
-            for (CustomImageTile tile : allTiles.values()) {
-                tile.setSelected(true);
-                selectedTiles.add(tile);
-            }
-        } else {
-            for (CustomImageTile tile : allTiles.values()) {
-                tile.setSelected(false);
-            }
-        }
-    }
-    
-    // Helper-Methode zum Skalieren aller ausgewählten Tiles
-    private void scaleSelectedTiles(double scaleFactor) {
-        for (CustomImageTile tile : selectedTiles) {
-            tile.scaleSVG(scaleFactor);
-        }
-        scenePanel.repaint();
-    }
+		// Hinzufügen von Steuerungstasten-Panel
+		JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+		JButton selectAllBtn = new JButton("Alle auswählen");
+		selectAllBtn.addActionListener(e -> {
+			selectAllTiles(true);
+			scenePanel.repaint();
+		});
 
-    private void loadFolderFiles(File folder) {
-        SwingUtilities.invokeLater(() -> {
-            tilePanel.removeAll();
-            selectedPanel.removeAll();
-            fileToTileMap.clear();
-            selectedFilePanels.clear();
-            fileCheckboxMap.clear();
-            
-            // Bestehende Sammlungen zurücksetzen
-            allTiles.clear();
-            selectedTiles.clear();
+		JButton selectNoneBtn = new JButton("Keine auswählen");
+		selectNoneBtn.addActionListener(e -> {
+			selectAllTiles(false);
+			scenePanel.repaint();
+		});
 
-            // SVG-Daten laden oder erstellen
-            SVGDataManager dataManager = new SVGDataManager();
-            svgData = dataManager.getSVGData(folder);
-            svgs.clear();
-            svgs.addAll(svgData);
+//		JButton scaleUpBtn = new JButton("Vergrößern");
+//		scaleUpBtn.addActionListener(e -> scaleSelectedTiles(1.1));
 
-            // Alle SVG-Dateien prüfen
-            File[] files = folder.listFiles(f -> f.isFile() && f.getName().toLowerCase().endsWith(".svg"));
-            if (files == null || files.length == 0) {
-                JOptionPane.showMessageDialog(frame, "Keine SVG-Dateien gefunden.");
-                if (svgCanvas != null) {
-                    svgCanvas.setURI(null);
-                }
-                return;
-            }
-            Arrays.sort(files);
+		JButton scaleUpBtn = new JButton("BildLaden");
+		File jarFile = null;
+		try {
+			jarFile = new File(ScreenShotHandler.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+		} catch (URISyntaxException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+		File programDir = jarFile.getParentFile();
 
-            // Tiles erzeugen und in Panel einfügen
-            for (LinkedList<String> data : svgData) {
-                CustomImageTile tile = new CustomImageTile(data, folder);
-//                tile.setTileUpdateListener(updatedTile -> {
-//                    // z. B. Liste aktualisieren oder Flag setzen
-//                	if(selectedTiles.contains(tile)) {
-//                		tile.setSelected(!tile.isSelected());
-//                	}
-////                    System.out.println("Tile updated: " + updatedTile.getFilename());
-//                });
-                allTiles.put(tile.getFilename(), tile);
-                
-                // Füge Listener für Auswahlstatus-Änderungen hinzu
-//                tile.addSelectionListener(isSelected -> {
-//                    if (isSelected) {
-//                        if (!selectedTiles.contains(tile)) {
-//                            selectedTiles.add(tile);
-//                        }
-//                    } else {
-//                        selectedTiles.remove(tile);
-//                    }
-//                });
-            }
+		// Screenshot-Verzeichnis erstellen
+		File screenshotsDir = new File(programDir, "screenshots");
+		String fileName = "A_ScreenShot1747778089222.png";
+		File screenshotFile = new File(screenshotsDir, fileName);
+		scaleUpBtn.addActionListener(e -> ScreenshotPanel.showScreenshotDialog(frame,screenshotFile));
 
-            // Linke Dateiliste mit Checkboxen
-            for (File file : files) {
-                JPanel leftRow = createThumbnailRow(file, true, true);
-                tilePanel.add(leftRow);
-                fileToTileMap.put(file, leftRow);
+		JButton takeScreenShot = initScreenshotButton(frame);
 
-                JCheckBox cb = findCheckboxInPanel(leftRow);
-                if (cb != null) {
-                    fileCheckboxMap.put(file, cb);
-                    cb.addActionListener(e -> {
-                        if (cb.isSelected()) {
-                            addFileToSelectedPanel(file);
-                            setTileVisible(file, true);
-                            addSVGThatYouClickedOn(file, "Clicked CheckBox");
-                        } else {
-                            removeFileFromSelectedPanel(file);
-                            setTileVisible(file, false);
-                        }
-                    });
-                }
-            }
+		JButton scaleDownBtn = new JButton("Verkleinern");
+		scaleDownBtn.addActionListener(e -> scaleSelectedTiles(0.9));
 
-            tilePanel.revalidate();
-            tilePanel.repaint();
-            selectedPanel.revalidate();
-            selectedPanel.repaint();
-        });
-    }
+		controlPanel.add(takeScreenShot);
+		controlPanel.add(selectAllBtn);
+		controlPanel.add(selectNoneBtn);
+		controlPanel.add(scaleUpBtn);
+		controlPanel.add(scaleDownBtn);
 
-    private JPanel createThumbnailRow(File file, boolean withCheckbox, boolean withName) {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 60));
+		JPanel bottomPanel = new JPanel(new BorderLayout());
+		bottomPanel.add(controlPanel, BorderLayout.CENTER);
 
-        JLabel thumb = new JLabel();
-        thumb.setPreferredSize(new Dimension(50, 50));
-        thumb.setOpaque(true);
-        thumb.setBackground(Color.WHITE);
-        row.add(thumb);
+		JButton resetZoomBtn = new JButton("Zoom zurücksetzen");
+		resetZoomBtn.addActionListener(e -> resetZoom());
+		controlPanel.add(resetZoomBtn);
 
-        // Thumbnail laden
-        new Thread(() -> {
-            BufferedImage img = getSvgThumbnail(file);
-            if (img != null)
-                SwingUtilities.invokeLater(() -> thumb.setIcon(new ImageIcon(img)));
-        }).start();
+		JPanel togglePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+		togglePanel.add(toggleLeft);
+		togglePanel.add(toggleRight);
+		bottomPanel.add(togglePanel, BorderLayout.SOUTH);
 
-        thumb.addMouseListener(new MouseAdapter() {
-            public void mouseClicked(MouseEvent e) {
-                addSVGThatYouClickedOn(file, "Clicked thumb");
-            }
-        });
+		frame.add(bottomPanel, BorderLayout.SOUTH);
 
-        if (withCheckbox) {
-            JCheckBox cb = new JCheckBox();
-            cb.setOpaque(false);
-            row.add(cb);
-        }
-        if (withName) {
-            JLabel nameLabel = new JLabel(file.getName());
-            nameLabel.setForeground(Color.BLUE);
-            nameLabel.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
-            nameLabel.addMouseListener(new MouseAdapter() {
-                public void mouseClicked(MouseEvent e) {
-                    String newName = JOptionPane.showInputDialog(frame, "Neuer Dateiname:", file.getName());
-                    if (newName != null && !newName.trim().isEmpty()) {
-                        if (!newName.toLowerCase().endsWith(".svg"))
-                            newName += ".svg";
-                        File renamed = new File(file.getParent(), newName);
-                        if (renamed.exists()) {
-                            JOptionPane.showMessageDialog(frame, "Datei existiert bereits.");
-                            return;
-                        }
-                        if (file.renameTo(renamed)) {
-                            nameLabel.setText(newName);
-                            imageCache.remove(file.getAbsolutePath());
-                            
-                            // Aktualisiere Tile-Mapping nach Umbenennung
-                            CustomImageTile tile = allTiles.remove(file.getName());
-                            if (tile != null) {
-                                tile.setFilename(newName);
-                                allTiles.put(newName, tile);
-                            }
-                            
-                            loadFolderFiles(currentFolder); // Refresh alle
-                        } else
-                            JOptionPane.showMessageDialog(frame, "Umbenennen fehlgeschlagen.");
-                    }
-                }
-            });
-            row.add(nameLabel);
-        }
+		loadFolderFiles(currentFolder);
 
-        return row;
-    }
+		frame.setLocationRelativeTo(null);
+		frame.setExtendedState(JFrame.MAXIMIZED_BOTH); // Maximiert das Fenster
+		frame.setVisible(true);
+		scenePanel.requestFocusInWindow();
+		centerScrollPane.setFocusable(false);
 
-    private void setTileVisible(File file, boolean visible) {
-        CustomImageTile tile = allTiles.get(file.getName());
-        if (tile != null) {
-            tile.getPanel().setVisible(visible);
-            
-            // Verwalte die ausgewählten Tiles
-            if (visible) {
-                if (!selectedTiles.contains(tile)) {
-                    selectedTiles.add(tile);
-                }
-            } else {
-                selectedTiles.remove(tile);
-                tile.setSelected(false);
-            }
-        }
-    }
+		startMemoryCleanupTimer();
+	}
 
-    private void addSVGThatYouClickedOn(File file, String id) {
-        CustomImageTile tile = allTiles.get(file.getName());
-        if (tile != null) {
-            // Bringen Sie das Panel des Tiles in den Vordergrund
-            scenePanel.add(tile.getPanel());
-            scenePanel.setComponentZOrder(tile.getPanel(), 0);
-            
-            // Ändere die Auswahl des Tiles
-            boolean isSelected = !tile.isSelected();
-            tile.setSelected(isSelected);
-            
-            // Aktualisiere die Liste der ausgewählten Tiles
-            if (isSelected) {
-                if (!selectedTiles.contains(tile)) {
-                    selectedTiles.add(tile);
-                }
-            } else {
-                selectedTiles.remove(tile);
-            }
-            
-            scenePanel.revalidate();
-            scenePanel.repaint();
-        } else {
-            System.out.println(id + ": Tile not found for " + file.getName());
-        }
-    }
+	public void resetZoom() {
 
-    private JCheckBox findCheckboxInPanel(JPanel p) {
-        for (Component c : p.getComponents())
-            if (c instanceof JCheckBox)
-                return (JCheckBox) c;
-        return null;
-    }
+		scenePanel.setPreferredSize(new Dimension(2000, 2000));
 
-    private void addFileToSelectedPanel(File file) {
-        if (selectedFilePanels.containsKey(file))
-            return;
+		scenePanel.revalidate();
+		scenePanel.repaint();
 
-        JPanel rightRow = createThumbnailRow(file, false, false);
+		loadCurrentSizeOfSelectedTiles();
 
-        rightRow.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                scrollToThumbnailInLeftPanel(file);
-            }
-        });
+		// Scrollbars zurücksetzen
+		centerScrollPane.getHorizontalScrollBar().setValue(0);
+		centerScrollPane.getVerticalScrollBar().setValue(0);
 
-        selectedFilePanels.put(file, rightRow);
-        selectedPanel.add(rightRow);
-        selectedPanel.revalidate();
-        selectedPanel.repaint();
-    }
+		captureZone = captureZoneReset;
+		startPoint = startPointReset;
+		currentZoom = 1.0;
+	}
 
-    private void scrollToThumbnailInLeftPanel(File file) {
-        JPanel leftThumbnail = fileToTileMap.get(file);
-        if (leftThumbnail != null) {
-            SwingUtilities.invokeLater(() -> {
-                Rectangle rect = leftThumbnail.getBounds();
-                rect.y = leftThumbnail.getY();
-                tileScrollPane.getViewport().scrollRectToVisible(rect);
-            });
-        }
-    }
+	private void zoomScenePanel(double zoomFactor) {
+		// Aktuelle Position der Scrollbalken relativ zum Viewport merken
+		JViewport viewport = centerScrollPane.getViewport();
+		Point viewPosition = viewport.getViewPosition();
+		if (currentZoom == 1) {
+			tilePositions = saveCurrentSizeAndPositionOfSelectedTiles(tilePositions);
+		}
+		// Neuen Zoom-Faktor berechnen
 
-    private void removeFileFromSelectedPanel(File file) {
-        JPanel panel = selectedFilePanels.remove(file);
-        if (panel != null) {
-            selectedPanel.remove(panel);
-            selectedPanel.revalidate();
-            selectedPanel.repaint();
-        }
-    }
+		currentZoom *= zoomFactor;
 
-    private void showSvg(File file) {
-        if (svgCanvas != null) {
-            svgCanvas.setURI(file.toURI().toString());
-        }
-    }
+		// Minimalen und maximalen Zoom begrenzen
+		currentZoom = Math.max(0.1, Math.min(5.0, currentZoom));
+		if (startPoint == null) {
+			if (startPointReset == null) {
+				startPointReset = new Point(0, 0);
 
-    private void startMemoryCleanupTimer() {
-        new javax.swing.Timer(60000, e -> System.gc()).start();
-    }
+			}
+			startPoint = startPointReset;
+		}
+		if (startPoint != null) {
+			startPoint.x *= zoomFactor;
+			startPoint.y *= zoomFactor;
+			int x = (int) (captureZone.getX() * zoomFactor);
+			int y = (int) (captureZone.getY() * zoomFactor);
+			int width = (int) (captureZone.getWidth() * zoomFactor);
+			int height = (int) (captureZone.getHeight() * zoomFactor);
+			captureZone = new Rectangle(x, y, width, height);
+		}
+		// Neue Größe des scenePanels berechnen
+		int newWidth = (int) (2000 * currentZoom); // Ursprüngliche Größe war 2000x2000
+		int newHeight = (int) (2000 * currentZoom);
+		scenePanel.setPreferredSize(new Dimension(newWidth, newHeight));
 
-    private void chooseFolder() {
-        JFileChooser chooser = new JFileChooser(LastUsedDirectory.load());
-        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+		// Position aller Tiles anpassen
+		for (CustomImageTile tile : addedTiles) {
+			JPanel tilePanel = tile.getPanel();
+			int x = (int) (tilePanel.getX() * zoomFactor);
+			int y = (int) (tilePanel.getY() * zoomFactor);
+			int width = (int) (tilePanel.getWidth() * zoomFactor);
+			int height = (int) (tilePanel.getHeight() * zoomFactor);
+			tilePanel.setBounds(x, y, width, height);
+			// Aktuallisiert die Größe des SVG Canvas
+			tile.scaleSVG(zoomFactor);
+		}
 
-        int result = chooser.showOpenDialog(frame);
+		// Neu berechnen, wo der Viewport sein sollte, damit der Zoom-Punkt im Zentrum
+		// bleibt
+		int newX = (int) ((viewPosition.x + startPoint.x) * zoomFactor - startPoint.x);
+		int newY = (int) ((viewPosition.y + startPoint.y) * zoomFactor - startPoint.y);
 
-        if (result == JFileChooser.APPROVE_OPTION) {
-            currentFolder = chooser.getSelectedFile();
-            LastUsedDirectory.save(currentFolder);
+		// Layout aktualisieren
+		scenePanel.revalidate();
+		// Viewport-Position setzen
+		viewport.setViewPosition(new Point(newX, newY));
+		// Panel neu zeichnen
+		scenePanel.repaint();
+	}
 
-            // Cache leeren beim Ordnerwechsel
-            imageCache.clear();
-            System.gc();
+	private List<Rectangle> saveCurrentSizeAndPositionOfSelectedTiles(List<Rectangle> positions) {
+		positions.clear(); // Alte Daten löschen
+		for (CustomImageTile tile : addedTiles) {
+			JPanel tilePanel = tile.getPanel();
+			Rectangle bounds = new Rectangle(tilePanel.getX(), tilePanel.getY(), tilePanel.getWidth(),
+					tilePanel.getHeight());
+			positions.add(bounds); // Speichert Position & Größe
+		}
+		return positions;
+	}
 
-            new Thread(() -> {
-                isLoadingFolder = true;
-                loadFolderFiles(currentFolder);
-                isLoadingFolder = false;
-            }).start();
-        }
-    }
+	private void loadCurrentSizeOfSelectedTiles() {
+		if (tilePositions.isEmpty() || addedTiles == null || addedTiles.isEmpty()) {
+			System.out.println("Keine Tiles oder gespeicherten Positionen vorhanden!");
+			return;
+		}
 
-    private BufferedImage getSvgThumbnail(File svgFile) {
-        String cacheKey = svgFile.getAbsolutePath();
+		int index = 0;
+		for (CustomImageTile tile : addedTiles) {
+			if (index < tilePositions.size()) {
+				Rectangle rect = tilePositions.get(index);
+				JPanel tilePanel = tile.getPanel();
 
-        // Versuchen, aus dem Cache zu laden
-        if (imageCache.containsKey(cacheKey)) {
-            WeakReference<BufferedImage> ref = imageCache.get(cacheKey);
-            BufferedImage cached = ref.get();
-            if (cached != null) {
-                return cached;
-            }
-            // Cache-Eintrag entfernen, wenn Bild nicht mehr im Speicher ist
-            imageCache.remove(cacheKey);
-        }
+				// Position und Größe auf gespeicherten Wert setzen
+				tilePanel.setBounds(rect.x, rect.y, rect.width, rect.height);
 
-        try {
-            // SVG in kleines PNG für die Vorschau umwandeln
-            PNGTranscoder transcoder = new PNGTranscoder();
-            transcoder.addTranscodingHint(PNGTranscoder.KEY_WIDTH, 50f);
-            transcoder.addTranscodingHint(PNGTranscoder.KEY_HEIGHT, 50f);
+				// Auch den SVG-Canvas im Tile anpassen
+				JSVGCanvas svgCanvas = tile.getSvgCanvas(); // Diese Methode müsste in CustomImageTile existieren
+				if (svgCanvas != null) {
+					svgCanvas.setSize(rect.width, rect.height);
+				}
 
-            // SVG Datei als Input
-            TranscoderInput input = new TranscoderInput(svgFile.toURI().toString());
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            TranscoderOutput output = new TranscoderOutput(outputStream);
+//	            tile.updateData();
+				index++;
+			}
+		}
 
-            // Transcode SVG zu PNG
-            transcoder.transcode(input, output);
+		// Layout aktualisieren
+		scenePanel.revalidate();
+		scenePanel.repaint();
+	}
 
-            // PNG aus Stream lesen
-            ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
-            BufferedImage thumbnail = ImageIO.read(inputStream);
+	/**
+	 * Ergänzung der CustomImageTile-Klasse um Zugriff auf den SVGCanvas zu
+	 * ermöglichen
+	 */
+	// Diese Methode müsste in der CustomImageTile-Klasse hinzugefügt werden:
 
-            // In Cache speichern
-            imageCache.put(cacheKey, new WeakReference<>(thumbnail));
+	public JSVGCanvas getSvgCanvas() {
+		return svgCanvas;
+	}
 
-            return thumbnail;
-        } catch (TranscoderException | java.io.IOException e) {
-            System.err.println("Fehler beim Erstellen der Vorschau für " + svgFile.getName() + ": " + e.getMessage());
-            return null;
-        }
-    }
+	private void saveCaptureZoneToTempFile() {
+		try {
+			tempFile = File.createTempFile("captureZone", ".tmp");
+			Files.write(Paths.get(tempFile.toURI()),
+					(captureZone.x + "," + captureZone.y + "," + captureZone.width + "," + captureZone.height)
+							.getBytes());
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
 
-    // Hilfsmethode für Debugging
-    private void printSelectedTiles() {
-        System.out.println("Ausgewählte Tiles: " + selectedTiles.size());
-        for (CustomImageTile tile : selectedTiles) {
-            System.out.println(" - " + tile.getFilename());
-        }
-    }
+	private void clearRectangle(Boolean repaint) {
+
+		captureZone = null;
+		startPoint = null;
+		if (repaint)
+			scenePanel.repaint();
+	}
+
+	private JButton initScreenshotButton(JFrame parentFrame) {
+		JButton takeScreenshot = new JButton();
+//		try {
+//			// SVG laden und in Icon konvertieren
+//			BufferedImage svgImg = SVGConverter.loadSvgAsImage("/camera.svg", 24, 24);
+//			takeScreenshot.setIcon(new ImageIcon(svgImg));
+//		} catch (Exception ex) {
+		takeScreenshot.setText("📸"); // Fallback
+//		}
+
+		takeScreenshot.setToolTipText("Screenshot-Panel öffnen");
+		takeScreenshot.addActionListener(e -> {
+			zoomScenePanel(10.0);
+			captureZoneReset = captureZone;
+			startPointReset = startPoint;
+			clearRectangle(true);
+			ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+			scheduler.schedule(() -> {
+
+				File screenShotFile = ScreenShotHandler.takeScreenshot(captureZoneReset, scenePanel, frame);
+				captureZone = captureZoneReset;
+				startPoint = startPointReset;
+				zoomScenePanel(0.10);
+				scheduler.shutdown();
+//				SVGTileViewerAppOutSource.showScreenshotDialog(parentFrame, screenShotFile);
+
+				ScreenshotPanel.showScreenshotDialog(parentFrame, screenShotFile);
+				scenePanel.repaint();
+			}, 300, TimeUnit.MILLISECONDS);
+
+		});
+		return takeScreenshot;
+	}
+
+	private JPanel addEditTextField(JPanel row, File file) {
+		JLabel nameLabel = new JLabel(file.getName());
+		nameLabel.setForeground(Color.BLUE);
+		nameLabel.setCursor(new java.awt.Cursor(java.awt.Cursor.HAND_CURSOR));
+		nameLabel.addMouseListener(new MouseAdapter() {
+
+			public void mouseClicked(MouseEvent e) {
+				String newName = JOptionPane.showInputDialog(frame, "Neuer Dateiname:", file.getName());
+				if (newName != null && !newName.trim().isEmpty()) {
+					if (!newName.toLowerCase().endsWith(".svg"))
+						newName += ".svg";
+					File renamed = new File(file.getParent(), newName);
+					if (renamed.exists()) {
+						JOptionPane.showMessageDialog(frame, "Datei existiert bereits.");
+						return;
+					}
+					if (file.renameTo(renamed)) {
+						nameLabel.setText(newName);
+						svgDataManager.imageCache.remove(file.getAbsolutePath());
+
+						// Aktualisiere Tile-Mapping nach Umbenennung
+						CustomImageTile tile = allTiles.remove(file.getName());
+						if (tile != null) {
+							tile.setFilename(newName);
+							allTiles.put(newName, tile);
+						}
+
+						loadFolderFiles(currentFolder); // Refresh alle
+					} else
+						JOptionPane.showMessageDialog(frame, "Umbenennen fehlgeschlagen.");
+				}
+			}
+		});
+		row.add(nameLabel);
+		return row;
+	}
+
+	private JPanel addCheckBox(JPanel row, CustomImageTile tile) {
+		JCheckBox cb = new JCheckBox();
+		cb.setSelected(true);
+		cb.setOpaque(false);
+		cb.addActionListener(e -> {
+			if (!cb.isSelected()) {
+				removeSelectedSVG(row, tile);
+			} else {
+				// Re-add to scene panel if checkbox is checked again
+				scenePanel = SVGTileViewerAppOutSource.setTileVisible(tile, true, scenePanel, centerScrollPane);
+			}
+		});
+		row.add(cb);
+		return row;
+	}
+
+	private void removeSelectedSVG(JPanel row, CustomImageTile tile) {
+		// TODO Auto-generated method stub
+		selectedPanel.remove(row);
+		selectedPanel.revalidate();
+		selectedPanel.repaint();
+
+		// Remove from scene panel
+		scenePanel = SVGTileViewerAppOutSource.setTileVisible(tile, false, scenePanel, centerScrollPane);
+	}
+
 }
