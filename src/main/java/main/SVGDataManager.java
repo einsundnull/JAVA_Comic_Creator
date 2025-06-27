@@ -5,6 +5,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -19,11 +20,21 @@ import org.apache.batik.transcoder.image.PNGTranscoder;
 
 public class SVGDataManager {
 
+	public static final int FILEPATH = 1;
 	Map<String, WeakReference<BufferedImage>> imageCache = new HashMap<>();
 
-	// Here I check the selected Folder for SVG files. I get all the data like
-	// "FilePath" Size etc.
-	public LinkedList<LinkedList<String>> getSVGData(File svgDirectory) {
+	public File[] getSVGDataDirectories(File svgDirectory) {
+		File[] folders = new File[0];
+		ArrayList<File> files = new ArrayList<>();
+		if (svgDirectory != null && svgDirectory.isDirectory()) {
+			// Nur direkte Unterordner werden durchsucht
+			folders = svgDirectory.listFiles(File::isDirectory);
+
+		}
+		return folders;
+	}
+
+	public LinkedList<LinkedList<String>> getSVGDataFromSVGInFolder(File svgDirectory) {
 		LinkedList<LinkedList<String>> svgData = new LinkedList<>();
 		File dataDir = new File(svgDirectory, "svgData");
 		File dataFile = new File(dataDir, "data.txt");
@@ -56,10 +67,6 @@ public class SVGDataManager {
 		return svgData;
 	}
 
-	// Modifikation des SVGDataManager, um SVG-Daten für eine einzelne Datei
-	// abzurufen
-	// Fügen Sie diese Methode zu Ihrer SVGDataManager-Klasse hinzu
-
 	public LinkedList<String> getSVGDataForFile(File file, LinkedList<LinkedList<String>> svgData) {
 		// Suche die Daten für eine bestimmte Datei
 		for (LinkedList<String> data : svgData) {
@@ -74,10 +81,6 @@ public class SVGDataManager {
 		// Falls keine Daten gefunden wurden, erstelle neue Daten für diese Datei
 		LinkedList<String> newData = new LinkedList<>();
 		newData.add(file.getName()); // Dateiname als erstes Element
-		// Fügen Sie weitere Standardwerte hinzu, die für ein CustomImageTile benötigt
-		// werden
-		// (abhängig von Ihrer CustomImageTile-Implementierung)
-
 		return newData;
 	}
 
@@ -98,8 +101,8 @@ public class SVGDataManager {
 		try {
 			// SVG in kleines PNG für die Vorschau umwandeln
 			PNGTranscoder transcoder = new PNGTranscoder();
-			transcoder.addTranscodingHint(PNGTranscoder.KEY_WIDTH, 50f);
-			transcoder.addTranscodingHint(PNGTranscoder.KEY_HEIGHT, 50f);
+			transcoder.addTranscodingHint(PNGTranscoder.KEY_WIDTH, 120f);
+			transcoder.addTranscodingHint(PNGTranscoder.KEY_HEIGHT, 120f);
 
 			// SVG Datei als Input
 			TranscoderInput input = new TranscoderInput(svgFile.toURI().toString());
@@ -122,4 +125,10 @@ public class SVGDataManager {
 			return null;
 		}
 	}
+
+	public BufferedImage getThumbnail(File file) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
 }

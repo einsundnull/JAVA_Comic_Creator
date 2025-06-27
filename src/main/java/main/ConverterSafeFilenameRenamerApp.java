@@ -10,9 +10,9 @@ import javax.swing.JFrame;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 
-public class SafeFilenameRenamerApp {
+public class ConverterSafeFilenameRenamerApp {
 	public static void main(String[] args) {
-		SwingUtilities.invokeLater(SafeFilenameRenamerApp::createAndShowUI);
+		SwingUtilities.invokeLater(ConverterSafeFilenameRenamerApp::createAndShowUI);
 	}
 
 	public static void createAndShowUI() {
@@ -92,6 +92,6 @@ public class SafeFilenameRenamerApp {
 		String replaced = name.replace("ä", "ae").replace("Ä", "Ae").replace("ö", "oe").replace("Ö", "Oe")
 				.replace("ü", "ue").replace("Ü", "Ue").replace("ß", "ss");
 
-		return replaced.replaceAll("[^a-zA-Z0-9-_]", "");
+		return replaced.replaceAll("[^a-zA-Z0-9]", "");
 	}
 }

@@ -10,10 +10,10 @@ import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 
-public class SvgToPngBatchThumbnailConverter {
+public class ConverterSvgToPngBatchThumbnail {
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(SvgToPngBatchThumbnailConverter::chooseAndConvertFolder);
+        SwingUtilities.invokeLater(ConverterSvgToPngBatchThumbnail::chooseAndConvertFolder);
     }
 
     private static void chooseAndConvertFolder() {

@@ -8,12 +8,12 @@ import javax.swing.JPanel;
 
 class PanelCopyData {
 	private JPanel panel;
-	private List<CustomImageTile> addedTiles;
+	private List<CustomImageSVGTile> addedTiles;
 	private Rectangle captureZone;
 	private Point startPoint;
 	private double zoom;
 
-	public PanelCopyData(JPanel panel, List<CustomImageTile> addedTiles, Rectangle captureZone, Point startPoint,
+	public PanelCopyData(JPanel panel, List<CustomImageSVGTile> addedTiles, Rectangle captureZone, Point startPoint,
 			double zoom) {
 		this.panel = panel;
 		this.addedTiles = addedTiles;
@@ -31,7 +31,7 @@ class PanelCopyData {
 		return panel;
 	}
 
-	public List<CustomImageTile> getTiles() {
+	public List<CustomImageSVGTile> getTiles() {
 		return addedTiles;
 	}
 

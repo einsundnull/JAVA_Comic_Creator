@@ -1,18 +1,37 @@
 package main;
 
-import javax.swing.*;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
-import javax.imageio.ImageIO;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 
-public class ImageProcessorPosterizeTwoColorAndAlpha extends JFrame {
+import javax.imageio.ImageIO;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.JButton;
+import javax.swing.JFileChooser;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JProgressBar;
+import javax.swing.JScrollPane;
+import javax.swing.JSpinner;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
+import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
+import javax.swing.UIManager;
+
+public class ConverterImageProcessorPosterizeTwoColorAndAlpha_noDuplicates extends JFrame {
     private JTextField folderPathField;
     private JButton browseButton;
     private JButton processButton;
@@ -21,7 +40,7 @@ public class ImageProcessorPosterizeTwoColorAndAlpha extends JFrame {
     private JLabel statusLabel;
     private JSpinner posterizeLevelsSpinner;
 
-    public ImageProcessorPosterizeTwoColorAndAlpha() {
+    public ConverterImageProcessorPosterizeTwoColorAndAlpha_noDuplicates() {
         setTitle("Bild Posterizer & Transparenz-Tool");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(600, 400);
@@ -148,19 +167,28 @@ public class ImageProcessorPosterizeTwoColorAndAlpha extends JFrame {
                 
                 File[] files = folder.listFiles((dir, name) -> {
                     String lowerName = name.toLowerCase();
-                    return lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") || 
-                           lowerName.endsWith(".png") || lowerName.endsWith(".bmp") ||
-                           lowerName.endsWith(".gif");
+                    // Prüfe auf gültige Bilddateien UND stelle sicher, dass der Name nicht auf "_trs" endet
+                    boolean isImageFile = lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") || 
+                                         lowerName.endsWith(".png") || lowerName.endsWith(".bmp") ||
+                                         lowerName.endsWith(".gif");
+                    
+                    // Extrahiere den Dateinamen ohne Erweiterung
+                    String baseName = name.substring(0, name.lastIndexOf('.'));
+                    boolean endsWithTRS = baseName.toLowerCase().endsWith("_trs");
+                    
+                    return isImageFile && !endsWithTRS;
                 });
                 
                 if (files == null || files.length == 0) {
-                    publish("Keine Bilder im ausgewählten Ordner gefunden.");
+                    publish("Keine zu verarbeitenden Bilder im ausgewählten Ordner gefunden.");
                     return results;
                 }
                 
-                publish("Gefundene Bilder: " + files.length);
+                publish("Gefundene Bilder (ohne _TRS-Dateien): " + files.length);
                 
                 int processedCount = 0;
+                int skippedCount = 0;
+                
                 for (File file : files) {
                     try {
                         publish("Verarbeite: " + file.getName());
@@ -169,6 +197,7 @@ public class ImageProcessorPosterizeTwoColorAndAlpha extends JFrame {
                         BufferedImage originalImage = ImageIO.read(file);
                         if (originalImage == null) {
                             publish("  Warnung: Konnte Bild nicht laden: " + file.getName());
+                            skippedCount++;
                             continue;
                         }
                         
@@ -222,7 +251,12 @@ public class ImageProcessorPosterizeTwoColorAndAlpha extends JFrame {
                         setProgress(progress);
                     } catch (IOException e) {
                         publish("  Fehler: " + e.getMessage());
+                        skippedCount++;
                     }
+                }
+                
+                if (skippedCount > 0) {
+                    publish("Übersprungene Dateien: " + skippedCount);
                 }
                 
                 return results;
@@ -273,7 +307,7 @@ public class ImageProcessorPosterizeTwoColorAndAlpha extends JFrame {
     public static void main(String[] args) {
         try {
             // Look and Feel des Systems verwenden
-            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+            UIManager.setLookAndFeel(UIManager.createLookAndFeel(null));
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -281,7 +315,7 @@ public class ImageProcessorPosterizeTwoColorAndAlpha extends JFrame {
         SwingUtilities.invokeLater(new Runnable() {
             @Override
             public void run() {
-                new ImageProcessorPosterizeTwoColorAndAlpha().setVisible(true);
+                new ConverterImageProcessorPosterizeTwoColorAndAlpha_noDuplicates().setVisible(true);
             }
         });
     }

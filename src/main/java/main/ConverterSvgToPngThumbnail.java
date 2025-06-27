@@ -12,7 +12,7 @@ import org.apache.batik.transcoder.TranscoderInput;
 import org.apache.batik.transcoder.TranscoderOutput;
 import org.apache.batik.transcoder.image.PNGTranscoder;
 
-public class SvgToPngThumbnail {
+public class ConverterSvgToPngThumbnail {
 
 	public static void createThumbnail(File svgFile, File pngFile, float width, float height)
 			throws TranscoderException, IOException {

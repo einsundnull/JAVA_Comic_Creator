@@ -1,5 +1,6 @@
 package main;
 
+import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
@@ -15,8 +16,7 @@ public class ScreenShotHandler extends JPanel {
 	private Rectangle captureZone;
 	private Point startPoint;
 
-	@SuppressWarnings("unused")
-	public static File takeScreenshot(Rectangle captureZone, JPanel scenePanel, JFrame frame) {
+	public static File takeScreenshot(File currentFolder, Rectangle captureZone, JPanel scenePanel, JFrame frame) {
 		File screenshotFile = null;
 		try {
 
@@ -24,7 +24,7 @@ public class ScreenShotHandler extends JPanel {
 			if (captureZone == null) {
 				screenshot = createImageFromPanel(scenePanel);
 			} else {
-				screenshot = createImageFromPanelRegion(scenePanel, captureZone);
+				screenshot = createImageFromCaptureZone(scenePanel, captureZone);
 			}
 
 			// Dateispeicherort bestimmen
@@ -34,6 +34,7 @@ public class ScreenShotHandler extends JPanel {
 
 			// Screenshot-Verzeichnis erstellen
 			File screenshotsDir = new File(programDir, "screenshots");
+//			File screenshotsDir = new File(currentFolder, "screenshots");
 			if (!screenshotsDir.exists()) {
 				screenshotsDir.mkdir();
 			}
@@ -51,6 +52,54 @@ public class ScreenShotHandler extends JPanel {
 		return screenshotFile;
 	}
 
+//	public static BufferedImage takeScreenshotII(Rectangle captureZone, JPanel scenePanel, JFrame frame) {
+////		File screenshotFile = null;
+//		BufferedImage screenshot = null;
+//		try {
+////			if (captureZone == null) {
+////				screenshot = createImageFromPanel(scenePanel);
+////			} else {
+//			screenshot = createImageFromPanelRegion(scenePanel, captureZone);
+////			}
+//
+//			// Dateispeicherort bestimmen
+////			
+////
+////			JOptionPane.showMessageDialog(frame, "Screenshot saved as " + screenshotFile.getName());
+//		} catch (Exception e) {
+//			e.printStackTrace();
+//			JOptionPane.showMessageDialog(frame, "Error taking screenshot: " + e.getMessage());
+//		}
+//		return screenshot;
+//	}
+
+	public static File saveScreenshot(File currentFolder, BufferedImage screenShot) {
+		File screenshotFile = null;
+		try {
+
+			// Dateispeicherort bestimmen
+			File jarFile = new File(
+					ScreenShotHandler.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+			File programDir = jarFile.getParentFile();
+
+			// Screenshot-Verzeichnis erstellen
+//			File screenshotsDir = new File(programDir, "screenshots");
+			File screenshotsDir = new File(currentFolder, "screenshots");
+			if (!screenshotsDir.exists()) {
+				screenshotsDir.mkdir();
+			}
+
+			String fileName = "A_ScreenShot" + System.currentTimeMillis() + ".png";
+
+			screenshotFile = new File(screenshotsDir, fileName);
+			ImageIO.write(screenShot, "png", screenshotFile);
+
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return screenshotFile;
+	}
+
 //	public class PanelToImage {
 	public static BufferedImage createImageFromPanel(JPanel panel) {
 		int width = panel.getWidth();
@@ -62,7 +111,7 @@ public class ScreenShotHandler extends JPanel {
 		return image;
 	}
 
-	public static BufferedImage createImageFromPanelRegion(JPanel panel, Rectangle captureZone) {
+	public static BufferedImage createImageFromCaptureZone(JPanel panel, Rectangle captureZone) {
 		// Sicherstellen, dass das Panel gerendert ist (wichtig für korrekte Größe)
 		panel.setSize(panel.getPreferredSize());
 		panel.doLayout();
@@ -85,6 +134,24 @@ public class ScreenShotHandler extends JPanel {
 		g2d.dispose();
 
 		return image;
+	}
+
+	public static int getRGBAt(JPanel panel, int x, int y) {
+		// Erstelle ein BufferedImage mit der Größe des JPanels
+		BufferedImage image = new BufferedImage(panel.getWidth(), panel.getHeight(), BufferedImage.TYPE_INT_RGB);
+
+		// Zeichne den Inhalt des JPanels in das BufferedImage
+		panel.paint(image.getGraphics());
+
+		// Hole den RGB-Wert an der Position (x, y)
+		return image.getRGB(x, y);
+	}
+
+	// Optional: Methode, die den RGB-Wert in separate R-, G-, B-Komponenten
+	// aufteilt
+	public static Color getColorAt(JPanel panel, int x, int y) {
+		int rgb = getRGBAt(panel, x, y);
+		return new Color(rgb);
 	}
 
 }

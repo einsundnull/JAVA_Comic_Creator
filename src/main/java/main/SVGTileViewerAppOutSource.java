@@ -29,9 +29,9 @@ public class SVGTileViewerAppOutSource {
 	
 	
 	
-	private JPanel highlightCorrespondingTileInCanvas(File file, JPanel scenePanel, LinkedList<CustomImageTile> addedTiles, boolean isHovered ) {
+	private JPanel highlightCorrespondingTileInCanvas(File file, JPanel scenePanel, LinkedList<CustomImageSVGTile> addedTiles, boolean isHovered ) {
 		String filename = file.getName();
-		for (CustomImageTile tile : addedTiles) {
+		for (CustomImageSVGTile tile : addedTiles) {
 			if (tile.getFilename().equals(filename)) {
 				if (isHovered) {
 					// Hervorhebung des Tiles im Canvas (z.B. mit einem speziellen Rahmen)
@@ -51,7 +51,7 @@ public class SVGTileViewerAppOutSource {
 		return scenePanel;
 	}
 	
-	private JPanel[] createThumbnailRowRight(CustomImageTile tile, JPanel selectedPanel,JPanel scenePanel, JScrollPane centerScrollPane, LinkedList<CustomImageTile> addedTiles, SVGDataManager svgDataManager) {
+	private JPanel[] createThumbnailRowRight(CustomImageSVGTile tile, JPanel selectedPanel,JPanel scenePanel, JScrollPane centerScrollPane, LinkedList<CustomImageSVGTile> addedTiles, SVGDataManager svgDataManager) {
 		// Bestehender Code...
 		File file = new File(tile.getData().get(1));
 		JPanel row[] = new JPanel[2];
@@ -133,7 +133,7 @@ public class SVGTileViewerAppOutSource {
 		return row;
 	}
 	
-	public static JPanel setTileVisible(CustomImageTile tile, boolean visible, JPanel scenePanel, JScrollPane centerScrollPane) {
+	public static JPanel setTileVisible(CustomImageSVGTile tile, boolean visible, JPanel scenePanel, JScrollPane centerScrollPane) {
 		System.out.println("setTileVisible für " + tile.getData().get(0) + ": " + visible);
 
 		if (tile != null) {
@@ -165,7 +165,7 @@ public class SVGTileViewerAppOutSource {
 		return scenePanel;
 	}
 	
-	private JPanel[] addCheckBox(CustomImageTile tile ,JPanel row,  JPanel selectedPanel ,JPanel scenePanel,JScrollPane centerScrollPane  ) {
+	private JPanel[] addCheckBox(CustomImageSVGTile tile ,JPanel row,  JPanel selectedPanel ,JPanel scenePanel,JScrollPane centerScrollPane  ) {
 		JPanel[] returnValues = new JPanel[3];
 		returnValues[0] = row;
 		returnValues[1] = selectedPanel;

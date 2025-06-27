@@ -51,7 +51,7 @@ import org.apache.batik.swing.JSVGCanvas;
 
 public class SvgTileViewerApp3 {
 
-	private static TileUpdateListener updateListener;
+	private static ListenerCustomTileUpdate updateListener;
 	private boolean isLoadingFolder = false;
 	private boolean scenePanelIsSelected;
 	private File currentFolder;
@@ -81,8 +81,8 @@ public class SvgTileViewerApp3 {
 	SVGDataManager svgDataManager = new SVGDataManager();
 	private Map<File, JPanel> fileToTileMap = new HashMap<>();
 	private Map<File, List<JPanel>> selectedFilePanels = new HashMap<>();
-	private Map<String, CustomImageTile> allTiles = new HashMap<>();
-	private List<CustomImageTile> addedTiles = new ArrayList<>();
+	private Map<String, CustomImageSVGTile> allTiles = new HashMap<>();
+	private List<CustomImageSVGTile> addedTiles = new ArrayList<>();
 	private LinkedList<LinkedList<String>> svgData = new LinkedList<>();
 	private List<Rectangle> tilePositions = new ArrayList<>(); // Speichert Positionen aller Kacheln
 	// For renaming
@@ -98,12 +98,12 @@ public class SvgTileViewerApp3 {
 	private void selectAllTiles(boolean select) {
 
 		if (select) {
-			for (CustomImageTile tile : addedTiles) {
+			for (CustomImageSVGTile tile : addedTiles) {
 				tile.setSelected(true);
 
 			}
 		} else {
-			for (CustomImageTile tile : addedTiles) {
+			for (CustomImageSVGTile tile : addedTiles) {
 				tile.setSelected(false);
 			}
 		}
@@ -111,7 +111,7 @@ public class SvgTileViewerApp3 {
 
 	// Helper-Methode zum Skalieren aller ausgewählten Tiles
 	private void scaleSelectedTiles(double scaleFactor) {
-		for (CustomImageTile tile : addedTiles) {
+		for (CustomImageSVGTile tile : addedTiles) {
 			if (tile.isSelected())
 				tile.scaleSVG(scaleFactor);
 		}
@@ -127,7 +127,7 @@ public class SvgTileViewerApp3 {
 			allTiles.clear();
 			// SVG-Daten laden oder erstellen
 
-			svgData = svgDataManager.getSVGData(folder);
+			svgData = svgDataManager.getSVGDataFromSVGInFolder(folder);
 
 			// Alle SVG-Dateien prüfen
 			File[] allSVGFiles = folder.listFiles(f -> f.isFile() && f.getName().toLowerCase().endsWith(".svg"));
@@ -142,7 +142,7 @@ public class SvgTileViewerApp3 {
 
 			// Tiles erzeugen und in Panel einfügen
 			for (LinkedList<String> data : svgData) {
-				CustomImageTile tile = new CustomImageTile(data, folder);
+				CustomImageSVGTile tile = new CustomImageSVGTile(data, folder);
 				allTiles.put(tile.getFilename(), tile);
 
 				JPanel leftRow = createThumbnailRowLeft(data);
@@ -187,7 +187,7 @@ public class SvgTileViewerApp3 {
 		add.setPreferredSize(new Dimension(30, 25));
 		add.setMargin(new Insets(0, 0, 0, 0)); // Minimale Padding
 		add.addActionListener(e -> {
-			CustomImageTile t = new CustomImageTile(data);
+			CustomImageSVGTile t = new CustomImageSVGTile(data);
 			t.setUpdateListener(updateListener);
 			addedTiles.add(t);
 			JPanel returnValues[] = new JPanel[2];
@@ -210,7 +210,7 @@ public class SvgTileViewerApp3 {
 		return row;
 	}
 
-	private JPanel[] createThumbnailRowRight(CustomImageTile tile, JPanel scenePanel, SVGDataManager svgDataManager) {
+	private JPanel[] createThumbnailRowRight(CustomImageSVGTile tile, JPanel scenePanel, SVGDataManager svgDataManager) {
 		// Bestehender Code...
 		File file = new File(tile.getData().get(1));
 		JPanel row[] = new JPanel[2];
@@ -293,7 +293,7 @@ public class SvgTileViewerApp3 {
 
 	private JPanel highlightCorrespondingTileInCanvas(File file, JPanel scenePanel, boolean isHovered) {
 		String filename = file.getName();
-		for (CustomImageTile tile : addedTiles) {
+		for (CustomImageSVGTile tile : addedTiles) {
 			if (tile.getFilename().equals(filename)) {
 				if (isHovered) {
 					// Hervorhebung des Tiles im Canvas (z.B. mit einem speziellen Rahmen)
@@ -313,7 +313,7 @@ public class SvgTileViewerApp3 {
 		return scenePanel;
 	}
 
-	private void highlightCorrespondingItemInRightPanel(CustomImageTile tile, boolean isHovered) {
+	private void highlightCorrespondingItemInRightPanel(CustomImageSVGTile tile, boolean isHovered) {
 		int index = 0;
 		for (Component component : selectedPanel.getComponents()) {
 //			if (!(component instanceof JPanel))
@@ -377,10 +377,10 @@ public class SvgTileViewerApp3 {
 	}
 
 	private void createAndShowUI() {
-		updateListener = new TileUpdateListener() {
+		updateListener = new ListenerCustomTileUpdate() {
 
 			@Override
-			public void onTileUpdated(CustomImageTile tile) {
+			public void onTileUpdated(CustomImageSVGTile tile) {
 			}
 
 			@Override
@@ -388,7 +388,7 @@ public class SvgTileViewerApp3 {
 			}
 
 			@Override
-			public void onTileHover(CustomImageTile tile, boolean isHovered) {
+			public void onTileHover(CustomImageSVGTile tile, boolean isHovered) {
 				System.out.println("hover " + tile.getFilename());
 				highlightCorrespondingItemInRightPanel(tile, isHovered);
 			}
@@ -498,7 +498,7 @@ public class SvgTileViewerApp3 {
 				if (e.isControlDown() && !scenePanelIsSelected) {
 					// Zoom für ausgewählte Tiles (bereits implementiert)
 					double scaleFactor = e.getWheelRotation() < 0 ? 1.1 : 0.9;
-					for (CustomImageTile tile : addedTiles) {
+					for (CustomImageSVGTile tile : addedTiles) {
 						if (tile.isSelected())
 							tile.scaleSVG(scaleFactor);
 					}
@@ -699,7 +699,7 @@ public class SvgTileViewerApp3 {
 		scenePanel.setPreferredSize(new Dimension(newWidth, newHeight));
 
 		// Position aller Tiles anpassen
-		for (CustomImageTile tile : addedTiles) {
+		for (CustomImageSVGTile tile : addedTiles) {
 			JPanel tilePanel = tile.getPanel();
 			int x = (int) (tilePanel.getX() * zoomFactor);
 			int y = (int) (tilePanel.getY() * zoomFactor);
@@ -727,7 +727,7 @@ public class SvgTileViewerApp3 {
 
 	private List<Rectangle> saveCurrentSizeAndPositionOfSelectedTiles(List<Rectangle> positions) {
 		positions.clear(); // Alte Daten löschen
-		for (CustomImageTile tile : addedTiles) {
+		for (CustomImageSVGTile tile : addedTiles) {
 			JPanel tilePanel = tile.getPanel();
 			Rectangle bounds = new Rectangle(tilePanel.getX(), tilePanel.getY(), tilePanel.getWidth(),
 					tilePanel.getHeight());
@@ -743,7 +743,7 @@ public class SvgTileViewerApp3 {
 		}
 
 		int index = 0;
-		for (CustomImageTile tile : addedTiles) {
+		for (CustomImageSVGTile tile : addedTiles) {
 			if (index < tilePositions.size()) {
 				Rectangle rect = tilePositions.get(index);
 				JPanel tilePanel = tile.getPanel();
@@ -851,7 +851,7 @@ public class SvgTileViewerApp3 {
 						svgDataManager.imageCache.remove(file.getAbsolutePath());
 
 						// Aktualisiere Tile-Mapping nach Umbenennung
-						CustomImageTile tile = allTiles.remove(file.getName());
+						CustomImageSVGTile tile = allTiles.remove(file.getName());
 						if (tile != null) {
 							tile.setFilename(newName);
 							allTiles.put(newName, tile);
@@ -867,7 +867,7 @@ public class SvgTileViewerApp3 {
 		return row;
 	}
 
-	private JPanel addCheckBox(JPanel row, CustomImageTile tile) {
+	private JPanel addCheckBox(JPanel row, CustomImageSVGTile tile) {
 		JCheckBox cb = new JCheckBox();
 		cb.setSelected(true);
 		cb.setOpaque(false);
@@ -883,7 +883,7 @@ public class SvgTileViewerApp3 {
 		return row;
 	}
 
-	private void removeSelectedSVG(JPanel row, CustomImageTile tile) {
+	private void removeSelectedSVG(JPanel row, CustomImageSVGTile tile) {
 		// TODO Auto-generated method stub
 		selectedPanel.remove(row);
 		selectedPanel.revalidate();

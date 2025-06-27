@@ -24,6 +24,8 @@ public class PaintDialog extends JDialog {
     private Point startPoint;
     private Shape currentShape;
     private BufferedImage originalImage;
+    private boolean listVisible = true;
+
 
     // Enum zur Verwaltung der Werkzeuge
     public enum Tool {
@@ -138,25 +140,64 @@ public class PaintDialog extends JDialog {
 
     private void initComponents() {
         setLayout(new BorderLayout());
-        
-        // Panel zum Zeichnen
+
+        // Panel mit umklappbarer Liste
+        DefaultListModel<String> listModel = new DefaultListModel<>();
+        listModel.addElement("Ebene 1");
+        listModel.addElement("Ebene 2");
+        listModel.addElement("Ebene 3");
+        JList<String> layerList = new JList<>(listModel);
+        JScrollPane listScrollPane = new JScrollPane(layerList);
+
+        JButton toggleListButton = new JButton("▶");
+        toggleListButton.addActionListener(e -> {
+            listVisible = !listVisible;
+            listScrollPane.setVisible(listVisible);
+            toggleListButton.setText(listVisible ? "◀" : "▶");
+            revalidate();
+            repaint();
+        });
+
+        JPanel leftPanel = new JPanel(new BorderLayout());
+        leftPanel.add(toggleListButton, BorderLayout.NORTH);
+        leftPanel.add(listScrollPane, BorderLayout.CENTER);
+
+        // Hauptbereich
         drawPanel = new DrawPanel();
         JScrollPane scrollPane = new JScrollPane(drawPanel);
+
+        add(leftPanel, BorderLayout.WEST);
         add(scrollPane, BorderLayout.CENTER);
-        
-        // Toolbar für Werkzeuge
-        JToolBar toolBar = createToolBar();
-        add(toolBar, BorderLayout.NORTH);
-        
-        // Statusleiste
-        JPanel statusBar = createStatusBar();
-        add(statusBar, BorderLayout.SOUTH);
-        
-        // Standardwerte setzen
+        add(createToolBar(), BorderLayout.NORTH);
+        add(createStatusBar(), BorderLayout.SOUTH);
+
         setPreferredSize(new Dimension(800, 600));
         pack();
         setLocationRelativeTo(getOwner());
     }
+
+    
+//    private void initComponents() {
+//        setLayout(new BorderLayout());
+//        
+//        // Panel zum Zeichnen
+//        drawPanel = new DrawPanel();
+//        JScrollPane scrollPane = new JScrollPane(drawPanel);
+//        add(scrollPane, BorderLayout.CENTER);
+//        
+//        // Toolbar für Werkzeuge
+//        JToolBar toolBar = createToolBar();
+//        add(toolBar, BorderLayout.NORTH);
+//        
+//        // Statusleiste
+//        JPanel statusBar = createStatusBar();
+//        add(statusBar, BorderLayout.SOUTH);
+//        
+//        // Standardwerte setzen
+//        setPreferredSize(new Dimension(800, 600));
+//        pack();
+//        setLocationRelativeTo(getOwner());
+//    }
 
     private JToolBar createToolBar() {
         JToolBar toolBar = new JToolBar();
